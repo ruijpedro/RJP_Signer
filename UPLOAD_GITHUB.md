@@ -1,4 +1,4 @@
-# Upload completo para GitHub — RJP Signer V1.2.5
+# Upload completo para GitHub — RJP Signer V1.2.6
 
 Para evitar misturar workflows antigos de outros projetos:
 
@@ -8,7 +8,7 @@ Para evitar misturar workflows antigos de outros projetos:
    - `build-webapp.yml`
    - `build-bridge-windows.yml`
    - `build-windows-installer.yml`
-3. Copia TODO o conteúdo desta pasta V1.2.5 para a raiz do repositório.
+3. Copia TODO o conteúdo desta pasta V1.2.6 para a raiz do repositório.
 4. Confirma que `package.json` e `capacitor.config.json` estão na raiz, e não dentro de uma subpasta adicional.
 5. Em Actions deverão aparecer:
    - Build RJP Signer Android APK

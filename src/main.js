@@ -68,7 +68,7 @@ app.innerHTML = `
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.2.5 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.2.6 · DWF / DWFx / PDF / PDF-A</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');

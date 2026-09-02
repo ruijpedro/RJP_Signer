@@ -22,7 +22,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.2.5";
+        private const string Version = "1.2.6";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private static readonly HashSet<string> AllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -348,6 +348,10 @@ namespace RJP.Signer.Bridge
                     int signedParts;
                     DateTime signedAt;
                     string signer;
+
+                    // Fase 1 — assinar e fechar completamente o package.
+                    // Não verificamos no mesmo PackageDigitalSignatureManager que acabou de escrever,
+                    // para evitar resultados inválidos causados por estado/caches ainda abertos.
                     using (var package = Package.Open(temp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
                     {
                         var manager = new PackageDigitalSignatureManager(package);
@@ -355,18 +359,44 @@ namespace RJP.Signer.Bridge
                         manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
                         manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
                         manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";
-                        var toSign = package.GetParts().Where(p => !IsSignatureInfrastructure(p.Uri)).Where(p => !IsRasterOverlayTiff(p.Uri)).Select(p => p.Uri).ToList();
+                        var toSign = package.GetParts()
+                            .Where(p => !IsSignatureInfrastructure(p.Uri))
+                            .Where(p => !IsRasterOverlayTiff(p.Uri))
+                            .Select(p => p.Uri)
+                            .ToList();
                         if (toSign.Count == 0) throw new InvalidDataException("O DWFx não contém partes assináveis.");
+
                         var created = manager.Sign(toSign, cert, new List<PackageRelationshipSelector>(), "SignatureIdValue");
+                        if (created == null) throw new CryptographicException("O motor OPC não devolveu uma assinatura.");
                         package.Flush();
-                        verifyResult = manager.VerifySignatures(false);
-                        signatureCount = manager.Signatures.Count;
-                        certStatus = created != null && created.Signer != null ? PackageDigitalSignatureManager.VerifyCertificate(created.Signer) : X509ChainStatusFlags.NotSignatureValid;
-                        signedParts = created == null ? 0 : created.SignedParts.Count;
-                        signedAt = created == null ? DateTime.Now : created.SigningTime;
-                        signer = created != null && created.Signer != null ? FriendlySubject(new X509Certificate2(created.Signer)) : FriendlySubject(cert);
-                        if (verifyResult != VerifyResult.Success) throw new CryptographicException("A assinatura foi criada mas a verificação OPC falhou: " + verifyResult);
                     }
+
+                    // Fase 2 — reabrir o ficheiro já fechado e verificar a assinatura persistida.
+                    using (var package = Package.Open(temp, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        var manager = new PackageDigitalSignatureManager(package);
+                        if (!manager.IsSigned) throw new CryptographicException("O package foi fechado mas a assinatura não ficou persistida.");
+
+                        verifyResult = manager.VerifySignatures(false);
+                        var signatures = manager.Signatures.ToList();
+                        var first = signatures.FirstOrDefault();
+                        signatureCount = signatures.Count;
+                        signedParts = signatures.Sum(s => s.SignedParts.Count);
+                        signedAt = first == null ? DateTime.Now : first.SigningTime;
+                        signer = first != null && first.Signer != null
+                            ? FriendlySubject(new X509Certificate2(first.Signer))
+                            : FriendlySubject(cert);
+                        certStatus = first != null && first.Signer != null
+                            ? PackageDigitalSignatureManager.VerifyCertificate(first.Signer)
+                            : X509ChainStatusFlags.NotSignatureValid;
+
+                        if (verifyResult != VerifyResult.Success)
+                        {
+                            Log("Verificação pós-reabertura falhou: " + verifyResult + " | assinaturas=" + signatureCount + " | partes=" + signedParts);
+                            throw new CryptographicException("A assinatura foi criada, o DWFx foi fechado e reaberto, mas a verificação OPC falhou: " + verifyResult);
+                        }
+                    }
+
                     var signedBytes = File.ReadAllBytes(temp);
                     File.WriteAllBytes(savePath, signedBytes);
                     var savedName = Path.GetFileName(savePath);

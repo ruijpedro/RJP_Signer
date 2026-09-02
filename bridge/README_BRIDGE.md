@@ -1,4 +1,4 @@
-# RJP Signer Bridge V1.2.5
+# RJP Signer Bridge V1.2.6
 
 Módulo local Windows x64 para ligar a WebApp RJP Signer aos certificados do Windows/Cartão de Cidadão.
 
@@ -18,7 +18,7 @@ Módulo local Windows x64 para ligar a WebApp RJP Signer aos certificados do Win
 ## Instalação recomendada
 No GitHub Actions executa **Build Windows Installer** e descarrega:
 
-`RJP_Signer_Bridge_Setup_V1.2.5.exe`
+`RJP_Signer_Bridge_Setup_V1.2.6.exe`
 
 Instala sem necessidade de privilégios de administrador no perfil do utilizador. O instalador configura o arranque automático.
 
