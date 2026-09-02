@@ -1,6 +1,6 @@
 #define MyAppName "RJP Signer Bridge"
 #ifndef MyAppVersion
-#define MyAppVersion "1.2.9"
+#define MyAppVersion "1.3.0"
 #endif
 #define MyAppPublisher "RJP"
 #define MyAppExeName "RJP.Signer.Bridge.exe"
@@ -29,6 +29,7 @@ RestartApplications=no
 [Files]
 Source: "..\RJP.Signer.Bridge\bin\Release\RJP.Signer.Bridge.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\RJP.Signer.Bridge\bin\Release\RJP.Signer.Bridge.exe.config"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\RJP.Signer.Bridge\bin\Release\Pkcs11Interop.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README_BRIDGE.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

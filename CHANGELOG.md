@@ -1,29 +1,15 @@
-# RJP Signer V1.2.9
+# RJP Signer V1.3.0
 
-## DWFx Autodesk RSA-SHA1 compatibility fix
-- Identificada a causa real do `InvalidSignature` a partir da comparação entre o DWFx Autodesk válido e o DWFx gerado pela V1.2.8.
-- As 37 partes protegidas e os respetivos SHA-1 estavam corretos.
-- A V1.2.8 gerava `SignatureMethod = rsa-sha256` por alteração de comportamento do SignedXml no .NET Framework 4.7.1+.
-- Ativado `Switch.System.Security.Cryptography.Xml.UseInsecureHashAlgorithms=true` apenas no Bridge legado DWFx.
-- O Bridge valida agora o `SignatureMethod` imediatamente após criar a assinatura e recusa o ficheiro se não for exatamente `rsa-sha1`.
-- Mantida a verificação OPC pós-gravação e a preservação `_ASSINADO_INVALIDO.dwfx` em caso de falha.
+## DWFx PKCS#11 — Cartão de Cidadão
 
-# RJP Signer V1.2.9
-
-- Corrige atualização do Bridge Windows: o instalador termina automaticamente versões antigas antes de substituir o executável.
-- A WebApp compara a sua versão com `/health` do Bridge e bloqueia a assinatura quando não coincidem.
-- Evita testes acidentais com Bridge V1.2.3 residente no Windows.
-- Mantém o modo de diagnóstico `_ASSINADO_INVALIDO.dwfx` da V1.2.7.
-
-# RJP Signer V1.2.9
-
-## Preservação de tentativa inválida
-
-Quando o motor cria uma assinatura DWFx mas a validação OPC devolve `InvalidSignature`, a tentativa deixa de ser apagada.
-
-São gravados:
-
-- `*_ASSINADO_INVALIDO.dwfx` — cópia técnica para diagnóstico;
-- `*_ASSINADO_INVALIDO.dwfx.txt` — relatório com versão, resultado OPC, signatário, assinaturas e partes protegidas.
-
-O ficheiro é explicitamente inválido e não deve ser utilizado como documento assinado final. Quando a validação for `Success`, mantém-se `*_ASSINADO.dwfx`.
+- Novo motor DWFx de compatibilidade Autodesk/Design Review via PKCS#11.
+- Usa o módulo oficial `C:\Windows\System32\pteidpkcs11.dll` já instalado pelo Autenticação.gov.
+- A estrutura OPC e os 37 hashes SHA-1 continuam a ser preparados pelo `PackageDigitalSignatureManager`.
+- A infraestrutura OPC é criada com certificado temporário de software, sem pedir PIN.
+- O certificado temporário é substituído pelo certificado de assinatura selecionado do Cartão de Cidadão.
+- O `SignedInfo` é alterado para `rsa-sha1`, canonicalizado com XML C14N e assinado em `CKM_SHA1_RSA_PKCS` diretamente no cartão.
+- O PIN não é recebido pela WebApp nem guardado pelo Bridge: o motor exige caminho de autenticação protegido do token.
+- A assinatura devolvida pelo cartão é validada localmente com a chave pública antes de ser gravada no DWFx.
+- O DWFx é fechado, reaberto e só é aceite se `VerifySignatures(false)` devolver `Success`.
+- Mantém `_ASSINADO_INVALIDO.dwfx` + relatório se a validação final falhar.
+- Bridge/WebApp/Installer sincronizados em V1.3.0.

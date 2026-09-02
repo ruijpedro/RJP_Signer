@@ -10,10 +10,14 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography.Xml;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
+using System.Xml;
+using Net.Pkcs11Interop.Common;
+using Net.Pkcs11Interop.HighLevelAPI;
 using System.Windows.Forms;
 
 namespace RJP.Signer.Bridge
@@ -22,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.2.9";
+        private const string Version = "1.3.0";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -49,11 +53,6 @@ namespace RJP.Signer.Bridge
         [STAThread]
         private static void Main()
         {
-            // .NET Framework 4.7.1+ passou a escolher RSA-SHA256 por omissão no SignedXml.
-            // O DWFx Autodesk/Design Review de referência usa RSA-SHA1; este switch
-            // restaura o comportamento legado apenas neste Bridge de compatibilidade.
-            AppContext.SetSwitch("Switch.System.Security.Cryptography.Xml.UseInsecureHashAlgorithms", true);
-
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -239,7 +238,7 @@ namespace RJP.Signer.Bridge
                         {
                             ok = true, name = "RJP Signer Bridge", version = Version,
                             capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog" },
-                            compatibility = "Autodesk/OPC RSA-SHA1 (SignedXml legacy switch)", pairingRequired = true
+                            compatibility = "Autodesk/OPC RSA-SHA1 via PKCS#11 Autenticação.gov", pairingRequired = true
                         }, origin); return;
                     }
                     if (req.Method == "POST" && req.Path == "/pair") { HandlePair(req, stream, origin); return; }
@@ -334,9 +333,15 @@ namespace RJP.Signer.Bridge
             {
                 if (!cert.HasPrivateKey) throw new InvalidOperationException("O certificado não tem uma chave privada acessível.");
                 if (DateTime.Now < cert.NotBefore || DateTime.Now > cert.NotAfter) throw new InvalidOperationException("O certificado está fora do período de validade.");
+                using (var rsaPublic = cert.GetRSAPublicKey())
+                {
+                    if (rsaPublic == null)
+                        throw new NotSupportedException("Este certificado não é RSA. O modo Autodesk/Design Review legado exige RSA-SHA1. PDF/PAdES moderno não terá esta limitação.");
+                }
 
                 var answer = MessageBox.Show(
-                    "Confirmas a assinatura digital deste ficheiro?\n\n" + filename + "\n\nCertificado:\n" + FriendlySubject(cert) + "\n\nModo: Compatibilidade Autodesk/Design Review\n\nO PIN deve ser introduzido apenas na janela oficial do Cartão de Cidadão/token.",
+                    "Confirmas a assinatura digital deste ficheiro?\n\n" + filename + "\n\nCertificado:\n" + FriendlySubject(cert) +
+                    "\n\nModo: Compatibilidade Autodesk/Design Review\nMotor: PKCS#11 Autenticação.gov\n\nO PIN deve ser introduzido apenas na janela protegida do Cartão de Cidadão/token.",
                     "RJP Signer — Confirmar assinatura", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
                 if (answer != DialogResult.Yes) throw new OperationCanceledException("Assinatura cancelada pelo utilizador no Windows.");
 
@@ -354,40 +359,60 @@ namespace RJP.Signer.Bridge
                     int signedParts;
                     DateTime signedAt;
                     string signer;
+                    string pkcs11Module = ResolvePkcs11Module();
 
-                    // Fase 1 — assinar e fechar completamente o package.
-                    // Não verificamos no mesmo PackageDigitalSignatureManager que acabou de escrever,
-                    // para evitar resultados inválidos causados por estado/caches ainda abertos.
+                    // Fase 1 — construir a infraestrutura OPC com um certificado temporário de software.
+                    // Isto evita pedir ao Cartão de Cidadão uma assinatura RSA-SHA256 que depois seria descartada.
+                    // Em seguida, o SignedInfo é mudado para rsa-sha1 e assinado diretamente via PKCS#11 oficial.
                     using (var package = Package.Open(temp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    using (var placeholderRsa = CreatePlaceholderRsa())
                     {
-                        var manager = new PackageDigitalSignatureManager(package);
-                        if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.2 não altera documentos DWFx já assinados.");
-                        manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
-                        manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
-                        manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";
-                        var toSign = package.GetParts()
-                            .Where(p => !IsSignatureInfrastructure(p.Uri))
-                            .Where(p => !IsRasterOverlayTiff(p.Uri))
-                            .Select(p => p.Uri)
-                            .ToList();
-                        if (toSign.Count == 0) throw new InvalidDataException("O DWFx não contém partes assináveis.");
-
-                        var created = manager.Sign(toSign, cert, new List<PackageRelationshipSelector>(), "SignatureIdValue");
-                        if (created == null) throw new CryptographicException("O motor OPC não devolveu uma assinatura.");
-
-                        var actualSignatureMethod = ReadSignatureMethod(created.SignaturePart);
-                        if (!string.Equals(actualSignatureMethod, LegacyRsaSha1SignatureMethod, StringComparison.Ordinal))
+                        var request = new CertificateRequest(
+                            "CN=RJP Signer OPC Placeholder",
+                            placeholderRsa,
+                            HashAlgorithmName.SHA256,
+                            RSASignaturePadding.Pkcs1);
+                        using (var placeholderCert = request.CreateSelfSigned(DateTimeOffset.Now.AddMinutes(-5), DateTimeOffset.Now.AddDays(1)))
                         {
-                            throw new CryptographicException(
-                                "O .NET criou um SignatureMethod incompatível com Autodesk/Design Review: " +
-                                (actualSignatureMethod ?? "(vazio)") +
-                                ". Era esperado rsa-sha1. O ficheiro não será aceite como assinado.");
-                        }
+                            var manager = new PackageDigitalSignatureManager(package);
+                            if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.3 não altera documentos DWFx já assinados.");
+                            manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
+                            manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
+                            manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";
+                            var toSign = package.GetParts()
+                                .Where(p => !IsSignatureInfrastructure(p.Uri))
+                                .Where(p => !IsRasterOverlayTiff(p.Uri))
+                                .Select(p => p.Uri)
+                                .ToList();
+                            if (toSign.Count == 0) throw new InvalidDataException("O DWFx não contém partes assináveis.");
 
-                        package.Flush();
+                            var created = manager.Sign(toSign, placeholderCert, new List<PackageRelationshipSelector>(), "SignatureIdValue");
+                            if (created == null || created.SignaturePart == null) throw new CryptographicException("O motor OPC não criou a infraestrutura de assinatura.");
+
+                            // Troca o certificado temporário pelo certificado real do Cartão de Cidadão.
+                            ReplaceEmbeddedCertificate(package, cert.RawData);
+
+                            // Mantém o XML do PackageDigitalSignatureManager byte-a-byte o mais estável possível:
+                            // apenas SignatureMethod e SignatureValue são alterados.
+                            var signatureXml = ReadPartText(created.SignaturePart);
+                            signatureXml = ReplaceSignatureMethod(signatureXml, LegacyRsaSha1SignatureMethod);
+                            var canonicalSignedInfo = CanonicalizeSignedInfo(signatureXml);
+
+                            // Assina o SignedInfo canónico com o módulo oficial Autenticação.gov.
+                            var pkcs11Signature = SignRsaSha1WithCitizenCardPkcs11(cert, canonicalSignedInfo, pkcs11Module);
+                            VerifyRsaSha1Locally(cert, canonicalSignedInfo, pkcs11Signature);
+                            signatureXml = ReplaceSignatureValue(signatureXml, Convert.ToBase64String(pkcs11Signature));
+                            WritePartText(created.SignaturePart, signatureXml);
+
+                            var actualMethod = ReadSignatureMethod(created.SignaturePart);
+                            if (!string.Equals(actualMethod, LegacyRsaSha1SignatureMethod, StringComparison.Ordinal))
+                                throw new CryptographicException("O SignatureMethod final não ficou em rsa-sha1.");
+
+                            package.Flush();
+                        }
                     }
 
-                    // Fase 2 — reabrir o ficheiro já fechado e verificar a assinatura persistida.
+                    // Fase 2 — reabrir o DWFx e validar com o mesmo verificador OPC que já validou o ficheiro Autodesk.
                     using (var package = Package.Open(temp, FileMode.Open, FileAccess.Read, FileShare.Read))
                     {
                         var manager = new PackageDigitalSignatureManager(package);
@@ -397,7 +422,7 @@ namespace RJP.Signer.Bridge
                         var signatures = manager.Signatures.ToList();
                         var first = signatures.FirstOrDefault();
                         signatureCount = signatures.Count;
-                        signedParts = signatures.Sum(s => s.SignedParts.Count);
+                        signedParts = signatures.Sum(sig => sig.SignedParts.Count);
                         signedAt = first == null ? DateTime.Now : first.SigningTime;
                         signer = first != null && first.Signer != null
                             ? FriendlySubject(new X509Certificate2(first.Signer))
@@ -408,15 +433,14 @@ namespace RJP.Signer.Bridge
 
                         if (verifyResult != VerifyResult.Success)
                         {
-                            // Preserva a tentativa inválida para diagnóstico.
-                            // Nunca é apresentada como documento assinado válido.
                             var diagnosticPath = BuildDiagnosticSavePath(savePath);
-                            var diagnosticBytes = File.ReadAllBytes(temp);
-                            File.WriteAllBytes(diagnosticPath, diagnosticBytes);
+                            File.WriteAllBytes(diagnosticPath, File.ReadAllBytes(temp));
                             var reportPath = diagnosticPath + ".txt";
                             File.WriteAllText(reportPath,
                                 "RJP Signer — diagnóstico de assinatura DWFx" + Environment.NewLine +
                                 "Versão Bridge: " + Version + Environment.NewLine +
+                                "Motor: PKCS#11 Autenticação.gov" + Environment.NewLine +
+                                "Módulo: " + pkcs11Module + Environment.NewLine +
                                 "Ficheiro origem: " + filename + Environment.NewLine +
                                 "Resultado OPC: " + verifyResult + Environment.NewLine +
                                 "Assinaturas: " + signatureCount + Environment.NewLine +
@@ -426,11 +450,10 @@ namespace RJP.Signer.Bridge
                                 "Certificado: " + certStatus + Environment.NewLine +
                                 "IMPORTANTE: este ficheiro NÃO deve ser usado como documento assinado válido." + Environment.NewLine,
                                 Encoding.UTF8);
-                            Log("Verificação pós-reabertura falhou: " + verifyResult + " | assinaturas=" + signatureCount + " | partes=" + signedParts + " | diagnóstico=" + diagnosticPath);
+                            Log("PKCS11: verificação final falhou: " + verifyResult + " | diagnóstico=" + diagnosticPath);
                             throw new CryptographicException(
-                                "A assinatura foi criada mas a verificação OPC falhou: " + verifyResult +
-                                ". Foi guardada uma cópia de diagnóstico em: " + diagnosticPath +
-                                ". Não uses esse ficheiro como assinatura válida; envia-o para análise.");
+                                "A assinatura PKCS#11 foi criada mas a verificação OPC falhou: " + verifyResult +
+                                ". Foi guardada uma cópia de diagnóstico em: " + diagnosticPath + ".");
                         }
                     }
 
@@ -446,20 +469,224 @@ namespace RJP.Signer.Bridge
                         ["X-RJP-Verify-Result"] = Uri.EscapeDataString(verifyResult.ToString()),
                         ["X-RJP-Signed-Parts"] = signedParts.ToString(),
                         ["X-RJP-Signature-Count"] = signatureCount.ToString(),
-                        ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat)"),
+                        ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat via PKCS#11)"),
                         ["X-RJP-Signed-At"] = Uri.EscapeDataString(signedAt.ToString("o")),
                         ["X-RJP-Certificate-Status"] = Uri.EscapeDataString(certStatus.ToString()),
                         ["X-RJP-Saved"] = "1",
                         ["X-RJP-Saved-Name"] = Uri.EscapeDataString(savedName)
                     };
                     WriteResponse(stream, 200, "application/octet-stream", signedBytes, origin, headers);
-                    Log("Assinado e guardado: " + filename + " -> " + savePath + " | " + signer + " | partes=" + signedParts + " | OPC=" + verifyResult + " | cert=" + certStatus);
+                    Log("PKCS11: assinado e guardado: " + filename + " -> " + savePath + " | " + signer + " | partes=" + signedParts + " | OPC=" + verifyResult);
                 }
                 finally { try { File.Delete(temp); } catch { } }
             }
             finally { cert.Dispose(); }
         }
 
+        private static RSACryptoServiceProvider CreatePlaceholderRsa()
+        {
+            var csp = new CspParameters(24)
+            {
+                KeyContainerName = "RJP_Signer_OPC_" + Guid.NewGuid().ToString("N"),
+                Flags = CspProviderFlags.NoPrompt
+            };
+            var rsa = new RSACryptoServiceProvider(2048, csp);
+            rsa.PersistKeyInCsp = false;
+            return rsa;
+        }
+
+        private static string ResolvePkcs11Module()
+        {
+            var candidates = new[]
+            {
+                Path.Combine(Environment.SystemDirectory, "pteidpkcs11.dll"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "pteidpkcs11.dll")
+            };
+            foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+                if (File.Exists(candidate)) return candidate;
+            throw new FileNotFoundException(
+                "Não foi encontrado o módulo PKCS#11 do Autenticação.gov (pteidpkcs11.dll). Instala/atualiza a aplicação Autenticação.gov antes de assinar.",
+                candidates[0]);
+        }
+
+        private static void ReplaceEmbeddedCertificate(Package package, byte[] certificateRawData)
+        {
+            var certParts = package.GetParts()
+                .Where(p => p.Uri.OriginalString.IndexOf("/package/services/digital-signature/certificate/", StringComparison.OrdinalIgnoreCase) >= 0)
+                .ToList();
+            if (certParts.Count != 1) throw new InvalidDataException("Era esperado exatamente um CertificatePart OPC; encontrados: " + certParts.Count + ".");
+            using (var output = certParts[0].GetStream(FileMode.Create, FileAccess.Write))
+                output.Write(certificateRawData, 0, certificateRawData.Length);
+        }
+
+        private static string ReadPartText(PackagePart part)
+        {
+            using (var input = part.GetStream(FileMode.Open, FileAccess.Read))
+            using (var reader = new StreamReader(input, Encoding.UTF8, true, 4096, false))
+                return reader.ReadToEnd();
+        }
+
+        private static void WritePartText(PackagePart part, string value)
+        {
+            var bytes = new UTF8Encoding(true).GetBytes(value);
+            using (var output = part.GetStream(FileMode.Create, FileAccess.Write))
+                output.Write(bytes, 0, bytes.Length);
+        }
+
+        private static string ReplaceSignatureMethod(string xml, string algorithm)
+        {
+            const string marker = "<SignatureMethod Algorithm=\"";
+            var start = xml.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) throw new InvalidDataException("SignatureMethod não encontrado no XMLDSIG.");
+            start += marker.Length;
+            var end = xml.IndexOf('"', start);
+            if (end <= start) throw new InvalidDataException("SignatureMethod inválido no XMLDSIG.");
+            return xml.Substring(0, start) + algorithm + xml.Substring(end);
+        }
+
+        private static string ReplaceSignatureValue(string xml, string base64Signature)
+        {
+            const string open = "<SignatureValue>";
+            const string close = "</SignatureValue>";
+            var start = xml.IndexOf(open, StringComparison.Ordinal);
+            if (start < 0) throw new InvalidDataException("SignatureValue não encontrado no XMLDSIG.");
+            start += open.Length;
+            var end = xml.IndexOf(close, start, StringComparison.Ordinal);
+            if (end < start) throw new InvalidDataException("SignatureValue inválido no XMLDSIG.");
+            return xml.Substring(0, start) + base64Signature + xml.Substring(end);
+        }
+
+        private static byte[] CanonicalizeSignedInfo(string signatureXml)
+        {
+            var doc = new XmlDocument { PreserveWhitespace = true };
+            doc.LoadXml(signatureXml.TrimStart('\uFEFF'));
+            var ns = new XmlNamespaceManager(doc.NameTable);
+            ns.AddNamespace("ds", "http://www.w3.org/2000/09/xmldsig#");
+            var signedInfo = doc.SelectSingleNode("/ds:Signature/ds:SignedInfo", ns) as XmlElement;
+            if (signedInfo == null) throw new InvalidDataException("SignedInfo não encontrado.");
+
+            var standalone = new XmlDocument { PreserveWhitespace = true };
+            var outer = signedInfo.OuterXml;
+            if (outer.IndexOf("xmlns=", StringComparison.Ordinal) < 0)
+                outer = outer.Replace("<SignedInfo", "<SignedInfo xmlns=\"http://www.w3.org/2000/09/xmldsig#\"");
+            standalone.LoadXml(outer);
+
+            var transform = new XmlDsigC14NTransform(false);
+            transform.LoadInput(standalone);
+            using (var canonical = (Stream)transform.GetOutput(typeof(Stream)))
+            using (var ms = new MemoryStream())
+            {
+                canonical.CopyTo(ms);
+                return ms.ToArray();
+            }
+        }
+
+        private static byte[] SignRsaSha1WithCitizenCardPkcs11(X509Certificate2 cert, byte[] canonicalSignedInfo, string modulePath)
+        {
+            var factories = new Pkcs11InteropFactories();
+            using (var library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, modulePath, AppType.MultiThreaded))
+            {
+                var slots = library.GetSlotList(SlotsType.WithTokenPresent);
+                if (slots == null || slots.Count == 0) throw new InvalidOperationException("Nenhum Cartão de Cidadão/token PKCS#11 foi detetado.");
+
+                foreach (var slot in slots)
+                {
+                    using (var session = slot.OpenSession(SessionType.ReadOnly))
+                    {
+                        byte[] keyId;
+                        if (!TryFindCertificateId(session, cert, out keyId)) continue;
+                        var privateKey = FindRsaSigningPrivateKey(session, keyId);
+                        if (privateKey == null) continue;
+
+                        var tokenInfo = slot.GetTokenInfo();
+                        var loggedIn = false;
+                        try
+                        {
+                            if (tokenInfo.TokenFlags.LoginRequired)
+                            {
+                                if (!tokenInfo.TokenFlags.ProtectedAuthenticationPath)
+                                    throw new NotSupportedException("O módulo PKCS#11 não anunciou um caminho de autenticação protegido. O RJP Signer não recolhe nem guarda o PIN do Cartão de Cidadão.");
+                                try
+                                {
+                                    session.Login(CKU.CKU_USER, (byte[])null);
+                                    loggedIn = true;
+                                }
+                                catch (Pkcs11Exception ex)
+                                {
+                                    if (ex.RV != CKR.CKR_USER_ALREADY_LOGGED_IN) throw;
+                                }
+                            }
+
+                            using (var mechanism = session.Factories.MechanismFactory.Create(CKM.CKM_SHA1_RSA_PKCS))
+                                return session.Sign(mechanism, privateKey, canonicalSignedInfo);
+                        }
+                        catch (Pkcs11Exception ex)
+                        {
+                            throw new CryptographicException("Falha PKCS#11 ao assinar em RSA-SHA1: " + ex.RV + ".", ex);
+                        }
+                        finally
+                        {
+                            if (loggedIn) { try { session.Logout(); } catch { } }
+                        }
+                    }
+                }
+            }
+            throw new InvalidOperationException("O certificado selecionado no Windows não foi encontrado no Cartão de Cidadão/token PKCS#11, ou não foi localizada a chave privada RSA correspondente.");
+        }
+
+        private static bool TryFindCertificateId(ISession session, X509Certificate2 selectedCertificate, out byte[] keyId)
+        {
+            keyId = null;
+            var template = new List<IObjectAttribute>
+            {
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_CERTIFICATE),
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CERTIFICATE_TYPE, CKC.CKC_X_509)
+            };
+            var handles = session.FindAllObjects(template);
+            foreach (var handle in handles)
+            {
+                try
+                {
+                    var attrs = session.GetAttributeValue(handle, new List<CKA> { CKA.CKA_VALUE, CKA.CKA_ID });
+                    if (attrs.Count < 2 || attrs[0].CannotBeRead || attrs[1].CannotBeRead) continue;
+                    var raw = attrs[0].GetValueAsByteArray();
+                    if (raw == null || raw.Length == 0) continue;
+                    bool same;
+                    try
+                    {
+                        using (var tokenCert = new X509Certificate2(raw))
+                            same = NormalizeThumbprint(tokenCert.Thumbprint) == NormalizeThumbprint(selectedCertificate.Thumbprint);
+                    }
+                    catch { same = raw.SequenceEqual(selectedCertificate.RawData); }
+                    if (!same) continue;
+                    keyId = attrs[1].GetValueAsByteArray();
+                    return keyId != null && keyId.Length > 0;
+                }
+                catch { }
+            }
+            return false;
+        }
+
+        private static IObjectHandle FindRsaSigningPrivateKey(ISession session, byte[] keyId)
+        {
+            var template = new List<IObjectAttribute>
+            {
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_PRIVATE_KEY),
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_KEY_TYPE, CKK.CKK_RSA),
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_ID, keyId),
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_SIGN, true)
+            };
+            return session.FindAllObjects(template).FirstOrDefault();
+        }
+
+        private static void VerifyRsaSha1Locally(X509Certificate2 cert, byte[] data, byte[] signature)
+        {
+            using (var rsa = cert.GetRSAPublicKey())
+            {
+                if (rsa == null || !rsa.VerifyData(data, signature, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1))
+                    throw new CryptographicException("A assinatura devolvida pelo PKCS#11 não valida com a chave pública do certificado selecionado.");
+            }
+        }
 
         private static string ReadSignatureMethod(PackagePart signaturePart)
         {

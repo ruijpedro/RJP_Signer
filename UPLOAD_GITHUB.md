@@ -1,19 +1,9 @@
-# Upload completo para GitHub — RJP Signer V1.2.9
+# Upload completo para GitHub — RJP Signer V1.3.0
 
-Para evitar misturar workflows antigos de outros projetos:
-
-1. No repositório RJP_Signer, elimina ficheiros `.yml` antigos dentro de `.github/workflows/` que tenham nomes ou conteúdo de **Cavadas Manager**.
-2. A pasta `.github/workflows/` do RJP Signer deve ficar APENAS com:
-   - `build-android.yml`
-   - `build-webapp.yml`
-   - `build-bridge-windows.yml`
-   - `build-windows-installer.yml`
-3. Copia TODO o conteúdo desta pasta V1.2.9 para a raiz do repositório.
-4. Confirma que `package.json` e `capacitor.config.json` estão na raiz, e não dentro de uma subpasta adicional.
-5. Em Actions deverão aparecer:
-   - Build RJP Signer Android APK
-   - Build RJP Signer WebApp
-   - Build RJP Signer Windows Bridge
-   - Build RJP Signer Windows Installer
-
-A pasta `android/` não vem no código-fonte porque o workflow a cria automaticamente com `npx cap add android` e depois executa `npx cap sync android`.
+1. Extrai o ZIP.
+2. Copia **todo** o conteúdo para a raiz do repositório RJP_Signer, incluindo `.github`.
+3. Confirma que `.github/workflows/` contém os 4 workflows.
+4. Faz commit/push.
+5. Em Actions, corre `Build RJP Signer Windows Installer`.
+6. Instala o artifact `RJP-Signer-Bridge-Setup-V1.3.0`.
+7. Confirma na WebApp que o Bridge reporta `V1.3.0` antes de assinar.

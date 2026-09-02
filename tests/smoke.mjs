@@ -30,13 +30,14 @@ if (!bridge.includes('ChooseSavePath') || !bridge.includes('X-RJP-Saved')) {
 if (!bridge.includes('BuildDiagnosticSavePath') || !bridge.includes('_ASSINADO_INVALIDO')) {
   throw new Error('Invalid-signature diagnostic preservation missing');
 }
-if (!bridge.includes('UseInsecureHashAlgorithms') || !bridge.includes('LegacyRsaSha1SignatureMethod') || !bridge.includes('ReadSignatureMethod')) {
-  throw new Error('Legacy RSA-SHA1 compatibility enforcement missing');
+if (!bridge.includes('SignRsaSha1WithCitizenCardPkcs11') || !bridge.includes('CKM.CKM_SHA1_RSA_PKCS') || !bridge.includes('pteidpkcs11.dll')) {
+  throw new Error('PKCS#11 RSA-SHA1 engine missing');
 }
-const appConfig = fs.readFileSync(new URL('bridge/RJP.Signer.Bridge/App.config', root), 'utf8');
-if (!appConfig.includes('Switch.System.Security.Cryptography.Xml.UseInsecureHashAlgorithms=true')) {
-  throw new Error('SignedXml SHA1 AppContext switch missing from App.config');
+if (!bridge.includes('ReplaceEmbeddedCertificate') || !bridge.includes('CanonicalizeSignedInfo') || !bridge.includes('ReplaceSignatureValue')) {
+  throw new Error('OPC XMLDSIG patch pipeline missing');
 }
+const csproj = fs.readFileSync(new URL('bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj', root), 'utf8');
+if (!csproj.includes('Pkcs11Interop') || !csproj.includes('5.3.0')) throw new Error('Pkcs11Interop package reference missing');
 const bridgeJs = fs.readFileSync(new URL('src/lib/bridge.js', root), 'utf8');
 if (!bridgeJs.includes('savedByBridge')) throw new Error('WebApp save confirmation integration missing');
 const mainJs = fs.readFileSync(new URL('src/main.js', root), 'utf8');

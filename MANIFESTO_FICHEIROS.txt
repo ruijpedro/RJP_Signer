@@ -1,4 +1,4 @@
-RJP Signer V1.2.9 — Manifesto de ficheiros
+RJP Signer V1.3.0 — Manifesto de ficheiros
 
 .github/workflows/build-android.yml
 .github/workflows/build-bridge-windows.yml
@@ -6,7 +6,6 @@ RJP Signer V1.2.9 — Manifesto de ficheiros
 .github/workflows/build-windows-installer.yml
 .gitignore
 CHANGELOG.md
-MANIFESTO_FICHEIROS.txt
 README.md
 UPLOAD_GITHUB.md
 bridge/README_BRIDGE.md
