@@ -22,7 +22,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.2.3";
+        private const string Version = "1.2.5";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private static readonly HashSet<string> AllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -232,7 +232,7 @@ namespace RJP.Signer.Bridge
                         WriteJson(stream, 200, new
                         {
                             ok = true, name = "RJP Signer Bridge", version = Version,
-                            capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing" },
+                            capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog" },
                             compatibility = "Autodesk/OPC RSA-SHA1", pairingRequired = true
                         }, origin); return;
                     }
@@ -334,6 +334,10 @@ namespace RJP.Signer.Bridge
                     "RJP Signer — Confirmar assinatura", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
                 if (answer != DialogResult.Yes) throw new OperationCanceledException("Assinatura cancelada pelo utilizador no Windows.");
 
+                var outputName = BuildOutputName(filename);
+                var savePath = ChooseSavePath(outputName);
+                if (string.IsNullOrWhiteSpace(savePath)) throw new OperationCanceledException("Guardar como cancelado. Nenhuma cópia assinada foi gravada.");
+
                 var temp = TempFile(".dwfx");
                 File.WriteAllBytes(temp, req.Body);
                 try
@@ -364,7 +368,8 @@ namespace RJP.Signer.Bridge
                         if (verifyResult != VerifyResult.Success) throw new CryptographicException("A assinatura foi criada mas a verificação OPC falhou: " + verifyResult);
                     }
                     var signedBytes = File.ReadAllBytes(temp);
-                    var outputName = BuildOutputName(filename);
+                    File.WriteAllBytes(savePath, signedBytes);
+                    var savedName = Path.GetFileName(savePath);
                     var headers = new Dictionary<string, string>
                     {
                         ["Content-Disposition"] = "attachment; filename=\"" + outputName.Replace("\"", "") + "\"",
@@ -376,10 +381,12 @@ namespace RJP.Signer.Bridge
                         ["X-RJP-Signature-Count"] = signatureCount.ToString(),
                         ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat)"),
                         ["X-RJP-Signed-At"] = Uri.EscapeDataString(signedAt.ToString("o")),
-                        ["X-RJP-Certificate-Status"] = Uri.EscapeDataString(certStatus.ToString())
+                        ["X-RJP-Certificate-Status"] = Uri.EscapeDataString(certStatus.ToString()),
+                        ["X-RJP-Saved"] = "1",
+                        ["X-RJP-Saved-Name"] = Uri.EscapeDataString(savedName)
                     };
                     WriteResponse(stream, 200, "application/octet-stream", signedBytes, origin, headers);
-                    Log("Assinado: " + filename + " -> " + outputName + " | " + signer + " | partes=" + signedParts + " | OPC=" + verifyResult + " | cert=" + certStatus);
+                    Log("Assinado e guardado: " + filename + " -> " + savePath + " | " + signer + " | partes=" + signedParts + " | OPC=" + verifyResult + " | cert=" + certStatus);
                 }
                 finally { try { File.Delete(temp); } catch { } }
             }
@@ -452,7 +459,58 @@ namespace RJP.Signer.Bridge
             if (string.IsNullOrWhiteSpace(name)) return "documento.dwfx";
             name = Uri.UnescapeDataString(name); foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_'); return name;
         }
-        private static string BuildOutputName(string name) { var ext = Path.GetExtension(name); var stem = Path.GetFileNameWithoutExtension(name); if (string.IsNullOrWhiteSpace(ext)) ext = ".dwfx"; return stem + "_ASSINADO" + ext; }
+        private static string BuildOutputName(string name)
+        {
+            var ext = Path.GetExtension(name);
+            var stem = Path.GetFileNameWithoutExtension(name);
+            if (string.IsNullOrWhiteSpace(ext)) ext = ".dwfx";
+            var suffixes = new[] { "_por assinar", "-por assinar", " por assinar", "_por_assinar", "-por-assinar" };
+            foreach (var suffix in suffixes)
+                if (stem.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    stem = stem.Substring(0, stem.Length - suffix.Length).TrimEnd(' ', '_', '-');
+                    break;
+                }
+            if (stem.EndsWith("_ASSINADO", StringComparison.OrdinalIgnoreCase))
+                return stem + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ext;
+            return stem + "_ASSINADO" + ext;
+        }
+        private static string ChooseSavePath(string outputName)
+        {
+            string selected = null;
+            Exception dialogError = null;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                    var initial = Directory.Exists(downloads) ? downloads : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                    using (var dialog = new SaveFileDialog
+                    {
+                        Title = "Guardar DWFx assinado",
+                        FileName = outputName,
+                        Filter = "DWFx assinado (*.dwfx)|*.dwfx|Todos os ficheiros (*.*)|*.*",
+                        FilterIndex = 1,
+                        DefaultExt = "dwfx",
+                        AddExtension = true,
+                        OverwritePrompt = true,
+                        CheckPathExists = true,
+                        RestoreDirectory = true,
+                        InitialDirectory = initial
+                    })
+                    {
+                        if (dialog.ShowDialog() == DialogResult.OK) selected = dialog.FileName;
+                    }
+                }
+                catch (Exception ex) { dialogError = ex; }
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = false;
+            thread.Start();
+            thread.Join();
+            if (dialogError != null) throw new InvalidOperationException("Não foi possível abrir a janela Guardar como.", dialogError);
+            return selected;
+        }
         private static string TempFile(string ext) { return Path.Combine(Path.GetTempPath(), "RJP_Signer_" + Guid.NewGuid().ToString("N") + ext); }
         private static string CleanError(Exception ex)
         {
@@ -483,7 +541,7 @@ namespace RJP.Signer.Bridge
             if (!string.IsNullOrWhiteSpace(origin) && AllowedOrigins.Contains(origin)) sb.Append("Access-Control-Allow-Origin: ").Append(origin).Append("\r\n");
             sb.Append("Vary: Origin\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
             sb.Append("Access-Control-Allow-Headers: Content-Type, X-RJP-Certificate, X-RJP-Filename, X-RJP-Token, X-RJP-Pair-Code, X-RJP-Sign-Mode\r\n");
-            sb.Append("Access-Control-Expose-Headers: X-RJP-Output-Name, X-RJP-Signer, X-RJP-Bridge-Version, X-RJP-Verify-Result, X-RJP-Signed-Parts, X-RJP-Signature-Count, X-RJP-Algorithm, X-RJP-Signed-At, X-RJP-Certificate-Status\r\n");
+            sb.Append("Access-Control-Expose-Headers: X-RJP-Output-Name, X-RJP-Signer, X-RJP-Bridge-Version, X-RJP-Verify-Result, X-RJP-Signed-Parts, X-RJP-Signature-Count, X-RJP-Algorithm, X-RJP-Signed-At, X-RJP-Certificate-Status, X-RJP-Saved, X-RJP-Saved-Name\r\n");
             sb.Append("Access-Control-Allow-Private-Network: true\r\n");
             if (extra != null) foreach (var kv in extra) sb.Append(kv.Key).Append(": ").Append(kv.Value).Append("\r\n");
             sb.Append("\r\n");

@@ -61,14 +61,14 @@ app.innerHTML = `
 
   <div id="signModal" class="modal hidden"><div class="modalbox">
     <button data-close="sign" class="x">×</button><h2>Assinar DWFx</h2>
-    <p id="modalText">Seleciona o certificado de assinatura. Antes de usar a chave privada, o Bridge pede confirmação no próprio Windows.</p>
+    <p id="modalText">Seleciona o certificado de assinatura. O Bridge abrirá sempre a janela do Windows <b>Guardar como</b> com o nome *_ASSINADO.dwfx antes de pedir o PIN.</p>
     <label>Certificado<select id="certSelect"></select></label><div id="certHelp" class="certhelp"></div>
     <div class="compatnote"><b>Modo:</b> Compatibilidade Autodesk/Design Review · XMLDSIG/OPC · SHA-1 legado apenas para este formato.</div>
-    <div class="modalactions"><button data-close="sign">Cancelar</button><button id="confirmSign" class="primary">Continuar para assinatura</button></div>
+    <div class="modalactions"><button data-close="sign">Cancelar</button><button id="confirmSign" class="primary">Assinar e guardar…</button></div>
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.2.3 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.2.5 · DWF / DWFx / PDF / PDF-A</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');
@@ -227,7 +227,7 @@ async function openSignDialog() {
   if (!usable.length) { toast('Não encontrei um certificado válido com chave privada. Confirma o Cartão de Cidadão.', true); return; }
   const preferred = chooseCertificate(usable);
   certSelect.innerHTML = usable.map(c => `<option value="${esc(c.thumbprint)}" ${preferred && c.thumbprint === preferred.thumbprint ? 'selected' : ''}>${esc(c.subject)}${c.citizenCard ? ' · Cartão de Cidadão' : ''}${c.recommended ? ' · assinatura' : ''}</option>`).join('');
-  $('#modalText').textContent = `${eligible.length} DWFx pronto(s). O Bridge mostrará uma confirmação no Windows; o PIN só deve ser introduzido no diálogo oficial do cartão/token.`;
+  $('#modalText').textContent = `${eligible.length} DWFx pronto(s). Depois da confirmação, o Windows abrirá sempre “Guardar como” com o nome *_ASSINADO.dwfx; só depois será pedido o PIN oficial do cartão/token.`;
   updateCertHelp(); signModal.classList.remove('hidden');
 }
 
@@ -248,28 +248,28 @@ async function signSelected() {
   const cert = certs.find(c => c.thumbprint === certSelect.value);
   if (!cert || !cert.valid) { toast('Seleciona um certificado válido.', true); return; }
   const eligible = docs.filter(d => d.type.family === 'DWFx' && !d.detail.signed);
-  signing = true; confirmSign.disabled = true; certSelect.disabled = true; confirmSign.textContent = 'A assinar…'; render();
+  signing = true; confirmSign.disabled = true; certSelect.disabled = true; confirmSign.textContent = 'A preparar Guardar como…'; render();
   let done = 0;
   try {
     for (const d of eligible) {
-      d.status = 'A aguardar confirmação/PIN no Windows…'; render();
+      d.status = 'A aguardar confirmação e Guardar como no Windows…'; render();
       const result = await bridgeSignDwfx(d.file, cert.thumbprint, token);
-      downloadBlob(result.blob, result.outputName);
-      d.status = `✓ Criado ${result.outputName}`;
+      if (!result.savedByBridge) downloadBlob(result.blob, result.outputName);
+      d.status = result.savedByBridge ? `✓ Assinado e guardado como ${result.savedName || result.outputName}` : `✓ Criado ${result.outputName}`;
       d.verification = { valid: result.verifyResult === 'Success', verifyResult: result.verifyResult, signer: result.signer, signedParts: result.signedParts, signatureCount: result.signatureCount, signedAt: result.signedAt };
       addHistory({
-        name: result.outputName, source: d.file.name, format: 'DWFx', signer: result.signer || cert.subject,
+        name: result.savedName || result.outputName, source: d.file.name, format: 'DWFx', signer: result.signer || cert.subject,
         date: result.signedAt || new Date().toISOString(), hashSource: d.hash, verification: result.verifyResult || 'Success', signedParts: result.signedParts, algorithm: result.algorithm
       });
       done++; render(); renderHistory();
     }
     signModal.classList.add('hidden');
-    toast(`${done} DWFx assinado(s) e verificado(s).`);
+    toast(`${done} DWFx assinado(s), verificado(s) e guardado(s) como *_ASSINADO.dwfx.`);
   } catch (e) {
     if (e.status === 401) { token = ''; localStorage.removeItem(TOKEN_KEY); paired = false; }
     toast(e.message || 'Falha durante a assinatura.', true);
   } finally {
-    signing = false; confirmSign.disabled = false; certSelect.disabled = false; confirmSign.textContent = 'Continuar para assinatura'; render();
+    signing = false; confirmSign.disabled = false; certSelect.disabled = false; confirmSign.textContent = 'Assinar e guardar…'; render();
   }
 }
 

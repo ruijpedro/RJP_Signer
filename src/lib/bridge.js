@@ -86,7 +86,9 @@ export async function bridgeSignDwfx(file, thumbprint, token) {
     signedParts: Number(get('X-RJP-Signed-Parts') || 0),
     signatureCount: Number(get('X-RJP-Signature-Count') || 0),
     algorithm: get('X-RJP-Algorithm') || 'RSA-SHA1 / SHA-1',
-    signedAt: get('X-RJP-Signed-At')
+    signedAt: get('X-RJP-Signed-At'),
+    savedByBridge: get('X-RJP-Saved') === '1',
+    savedName: get('X-RJP-Saved-Name')
   };
 }
 
