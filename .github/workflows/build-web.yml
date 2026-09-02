@@ -1,0 +1,52 @@
+name: Build Cavadas Manager WebApp
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@10.15.0 --activate
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf node_modules
+          pnpm install --no-frozen-lockfile
+          test -x node_modules/.bin/vite
+          test -d node_modules/@vitejs/plugin-react
+
+      - name: Build WebApp
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pnpm run build
+          test -f dist/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
