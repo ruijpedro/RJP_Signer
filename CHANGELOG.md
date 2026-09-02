@@ -1,14 +1,20 @@
-# V1.2.1
+# V1.2.2
+
+## Correção Build Windows Installer
+
+- Corrige a sintaxe Inno Setup do `ValueData` em `[Registry]`.
+- A entrada de arranque automático passa a gravar corretamente o executável entre aspas: `"{app}\RJP.Signer.Bridge.exe"`.
+- Atualiza os artifacts e nomes de versão para V1.2.2.
 
 - Corrige o build Android no GitHub Actions.
 - Substitui `capacitor.config.js` por `capacitor.config.json` para garantir leitura inequívoca do `appId`.
 - `appId` fixo: `pt.rjp.signer`.
 - Adiciona validação explícita da configuração e da pasta `dist` antes de `npx cap add android`.
-- Atualiza o artifact Android para `RJP-Signer-V1.2.1-APK`.
+- Atualiza o artifact Android para `RJP-Signer-V1.2.2-APK`.
 
 # Changelog
 
-## 1.2.1
+## 1.2.2
 - Bridge Windows convertido para app de system tray.
 - Instalador Inno Setup gerado por GitHub Actions.
 - Arranque automático no Windows.

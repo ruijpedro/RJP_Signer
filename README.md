@@ -1,4 +1,4 @@
-# RJP Signer V1.2.1
+# RJP Signer V1.2.2
 
 WebApp + Bridge Windows para assinatura e verificação digital de **DWFx**, mantendo análise de **DWF, PDF e PDF/A**.
 
@@ -40,8 +40,8 @@ Depois de criar a assinatura, o Bridge executa `VerifySignatures(false)` antes d
 ## Instalação Windows recomendada
 1. Publica a WebApp com **Build WebApp**.
 2. Em GitHub Actions executa **Build Windows Installer**.
-3. Descarrega `RJP-Signer-Bridge-Setup-V1.2.1`.
-4. Executa `RJP_Signer_Bridge_Setup_V1.2.1.exe`.
+3. Descarrega `RJP-Signer-Bridge-Setup-V1.2.2`.
+4. Executa `RJP_Signer_Bridge_Setup_V1.2.2.exe`.
 5. O Bridge fica instalado no perfil do Windows e inicia automaticamente.
 6. Botão direito no ícone junto ao relógio > **Mostrar código de emparelhamento**.
 7. Introduz os 6 dígitos na WebApp.

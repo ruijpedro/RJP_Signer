@@ -1,5 +1,5 @@
 #define MyAppName "RJP Signer Bridge"
-#define MyAppVersion "1.2.1"
+#define MyAppVersion "1.2.2"
 #define MyAppPublisher "RJP"
 #define MyAppExeName "RJP.Signer.Bridge.exe"
 
@@ -14,7 +14,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=output
-OutputBaseFilename=RJP_Signer_Bridge_Setup_V1.2.1
+OutputBaseFilename=RJP_Signer_Bridge_Setup_V1.2.2
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -34,7 +34,7 @@ Name: "{group}\RJP Signer Bridge"; Filename: "{app}\{#MyAppExeName}"
 Name: "{userdesktop}\RJP Signer Bridge"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RJP Signer Bridge"; ValueData: "\"{app}\{#MyAppExeName}\""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RJP Signer Bridge"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho no ambiente de trabalho"; GroupDescription: "Atalhos:"; Flags: unchecked
