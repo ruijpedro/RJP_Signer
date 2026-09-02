@@ -32,8 +32,11 @@ if (!bridge.includes('BuildDiagnosticSavePath') || !bridge.includes('_ASSINADO_I
 }
 const bridgeJs = fs.readFileSync(new URL('src/lib/bridge.js', root), 'utf8');
 if (!bridgeJs.includes('savedByBridge')) throw new Error('WebApp save confirmation integration missing');
+const mainJs = fs.readFileSync(new URL('src/main.js', root), 'utf8');
+if (!mainJs.includes('bridgeCompatible') || !mainJs.includes('Bridge desatualizado')) throw new Error('Bridge version mismatch protection missing');
 
 const installer = fs.readFileSync(new URL('bridge/installer/RJP_Signer_Bridge.iss', root), 'utf8');
+if (!installer.includes('StopRunningBridge') || !installer.includes('taskkill.exe')) throw new Error('Installer old Bridge shutdown missing');
 if (!installer.includes(`#define MyAppVersion "${pkg.version}"`)) {
   throw new Error('Installer default version does not match package ' + pkg.version);
 }

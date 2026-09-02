@@ -5,6 +5,8 @@ import { inspectDwfx } from './lib/dwfx.js';
 import { inspectPdf } from './lib/pdf.js';
 import { bridgeHealth, bridgePair, bridgeCertificates, bridgeVerifyDwfx, bridgeSignDwfx } from './lib/bridge.js';
 
+const APP_VERSION = '1.2.8';
+
 const TOKEN_KEY = 'rjp-signer-bridge-token-v1';
 const HISTORY_KEY = 'rjp-signer-history-v1';
 const app = document.querySelector('#app');
@@ -68,7 +70,7 @@ app.innerHTML = `
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.2.7 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.2.8 · DWF / DWFx / PDF / PDF-A</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');
@@ -84,6 +86,7 @@ let bridge = null;
 let certs = [];
 let token = localStorage.getItem(TOKEN_KEY) || '';
 let paired = false;
+let bridgeCompatible = false;
 let signing = false;
 let connecting = false;
 
@@ -112,8 +115,20 @@ async function connect(showToast = false) {
   try {
     bridge = await bridgeHealth();
     bridgeDot.className = 'dot on';
+    bridgeCompatible = bridge.version === APP_VERSION;
     bridgeState.textContent = `Bridge detetado · V${bridge.version}`;
     bridgeInfo.textContent = '127.0.0.1 · apenas neste computador';
+
+    if (!bridgeCompatible) {
+      paired = false; certs = [];
+      pairBridge.classList.add('hidden');
+      cardBadge.className = 'badge warn';
+      cardBadge.textContent = `Atualizar Bridge para V${APP_VERSION}`;
+      bridgeState.textContent = `Bridge desatualizado · V${bridge.version}`;
+      bridgeInfo.textContent = `WebApp V${APP_VERSION} · instala e inicia o Bridge V${APP_VERSION}`;
+      if (showToast) toast(`O Bridge V${bridge.version} está desatualizado. Instala o Bridge V${APP_VERSION} antes de assinar.`, true);
+      render(); return true;
+    }
 
     if (!token) {
       paired = false; certs = [];
@@ -147,7 +162,7 @@ async function connect(showToast = false) {
     }
     render(); return true;
   } catch (e) {
-    bridge = null; paired = false; certs = [];
+    bridge = null; paired = false; bridgeCompatible = false; certs = [];
     bridgeDot.className = 'dot off';
     bridgeState.textContent = 'Bridge não encontrado';
     bridgeInfo.textContent = 'Instala/abre o RJP Signer Bridge no Windows';
@@ -217,6 +232,7 @@ async function verifyDocuments() {
 async function openSignDialog() {
   const eligible = docs.filter(d => d.type.family === 'DWFx' && !d.detail.signed);
   if (!eligible.length) { toast('Não há DWFx não assinados na lista.', true); return; }
+  if (bridge && !bridgeCompatible) { toast(`Atualiza primeiro o RJP Signer Bridge para V${APP_VERSION}.`, true); return; }
   if (!bridge || !paired) {
     const ok = await connect(true);
     if (!ok || !paired) return;
@@ -286,13 +302,13 @@ function renderHistory() {
 
 function render() {
   const active = docs.length > 0;
-  signAll.disabled = !active || signing || !docs.some(d => d.type.family === 'DWFx' && !d.detail.signed);
+  signAll.disabled = !active || signing || !bridgeCompatible || !docs.some(d => d.type.family === 'DWFx' && !d.detail.signed);
   verifyAll.disabled = !active || signing; clearBtn.disabled = !active || signing;
   if (!active) { list.innerHTML = '<div class="empty">Ainda não existem documentos adicionados.</div>'; return; }
   list.innerHTML = docs.map((d, i) => {
     let state = d.status || 'Pronto', extra = '';
     if (d.type.family === 'DWFx') {
-      if (!d.status) state = d.detail.signed ? 'Assinatura DWFx encontrada' : (paired ? 'Pronto para assinar' : 'Pronto · Bridge necessário para assinatura');
+      if (!d.status) state = d.detail.signed ? 'Assinatura DWFx encontrada' : (!bridgeCompatible && bridge ? `Bridge V${bridge.version} desatualizado` : (paired ? 'Pronto para assinar' : 'Pronto · Bridge necessário para assinatura'));
       extra = `<div class="meta"><span>Entradas: <b>${d.detail.entries ?? '?'}</b></span><span>Assinado: <b>${d.detail.signed ? 'Sim' : 'Não'}</b></span>${d.detail.signature ? `<span>Referências: <b>${d.detail.signature.references}</b></span><span>Algoritmo: <b>${esc(shortAlgo(d.detail.signature.algorithm))}</b></span>` : ''}</div>`;
     } else if (d.type.family === 'PDF') {
       if (!d.status) state = d.detail.signatures ? `${d.detail.signatures} assinatura(s) PDF detetada(s)` : 'PDF sem assinatura · PAdES em integração';

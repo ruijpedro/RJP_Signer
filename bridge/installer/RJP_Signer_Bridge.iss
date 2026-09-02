@@ -1,6 +1,6 @@
 #define MyAppName "RJP Signer Bridge"
 #ifndef MyAppVersion
-#define MyAppVersion "1.2.7"
+#define MyAppVersion "1.2.8"
 #endif
 #define MyAppPublisher "RJP"
 #define MyAppExeName "RJP.Signer.Bridge.exe"
@@ -43,3 +43,20 @@ Name: "desktopicon"; Description: "Criar atalho no ambiente de trabalho"; GroupD
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Iniciar RJP Signer Bridge"; Flags: nowait postinstall skipifsilent
+
+
+[Code]
+procedure StopRunningBridge();
+var
+  ResultCode: Integer;
+begin
+  { Garante que o EXE antigo não fica residente na área de notificação. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "{#MyAppExeName}"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1000);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+    StopRunningBridge();
+end;

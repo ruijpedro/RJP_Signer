@@ -1,4 +1,11 @@
-# RJP Signer V1.2.7
+# RJP Signer V1.2.8
+
+- Corrige atualização do Bridge Windows: o instalador termina automaticamente versões antigas antes de substituir o executável.
+- A WebApp compara a sua versão com `/health` do Bridge e bloqueia a assinatura quando não coincidem.
+- Evita testes acidentais com Bridge V1.2.3 residente no Windows.
+- Mantém o modo de diagnóstico `_ASSINADO_INVALIDO.dwfx` da V1.2.7.
+
+# RJP Signer V1.2.8
 
 ## Preservação de tentativa inválida
 
