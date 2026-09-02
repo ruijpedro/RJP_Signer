@@ -26,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.3.1";
+        private const string Version = "1.3.2";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -584,6 +584,7 @@ namespace RJP.Signer.Bridge
         private static byte[] SignRsaSha1WithCitizenCardPkcs11(X509Certificate2 cert, byte[] canonicalSignedInfo, string modulePath)
         {
             var factories = new Pkcs11InteropFactories();
+            var diagnostics = new List<string>();
             using (var library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, modulePath, AppType.MultiThreaded))
             {
                 var slots = library.GetSlotList(SlotsType.WithTokenPresent);
@@ -591,34 +592,86 @@ namespace RJP.Signer.Bridge
 
                 foreach (var slot in slots)
                 {
+                    var tokenInfo = slot.GetTokenInfo();
+                    var tokenLabel = (tokenInfo.Label ?? "").Trim();
                     using (var session = slot.OpenSession(SessionType.ReadOnly))
                     {
-                        byte[] keyId;
-                        if (!TryFindCertificateId(session, cert, out keyId)) continue;
-                        var privateKey = FindRsaSigningPrivateKey(session, keyId);
-                        if (privateKey == null) continue;
+                        diagnostics.Add("Token: " + (string.IsNullOrWhiteSpace(tokenLabel) ? "(sem label)" : tokenLabel) +
+                            " | objetos: " + DescribePkcs11SigningObjects(session));
 
-                        var tokenInfo = slot.GetTokenInfo();
+                        // O middleware oficial documenta o alias da chave de assinatura como
+                        // "CITIZEN SIGNATURE CERTIFICATE". Não dependemos de CKA_ID, que pode
+                        // estar vazio/não exposto por alguns cartões ou versões do middleware.
+                        var privateKey = FindCitizenSignaturePrivateKey(session);
+
+                        // Alguns tokens só expõem objetos privados após login. Neste caso tentamos
+                        // o login com PIN nulo: o pteidpkcs11 é responsável pela sua própria janela
+                        // protegida de PIN; o RJP Signer nunca lê nem armazena o PIN.
                         var loggedIn = false;
+                        if (privateKey == null && tokenInfo.TokenFlags.LoginRequired)
+                        {
+                            try
+                            {
+                                session.Login(CKU.CKU_USER, (byte[])null);
+                                loggedIn = true;
+                            }
+                            catch (Pkcs11Exception ex)
+                            {
+                                if (ex.RV != CKR.CKR_USER_ALREADY_LOGGED_IN)
+                                    diagnostics.Add("Login PKCS#11: " + ex.RV);
+                            }
+                            privateKey = FindCitizenSignaturePrivateKey(session);
+                        }
+
+                        if (privateKey == null)
+                        {
+                            if (loggedIn) { try { session.Logout(); } catch { } }
+                            continue;
+                        }
+
+                        // Quando o certificado de assinatura está exposto no token, confirma que
+                        // corresponde ao certificado escolhido na WebApp. Se não estiver exposto,
+                        // a validação criptográfica local abaixo continua a impedir uma chave errada.
+                        var tokenCert = FindCitizenSignatureCertificate(session);
+                        if (tokenCert != null && !CertificatesMatch(tokenCert, cert))
+                        {
+                            diagnostics.Add("O certificado de assinatura do token não corresponde ao certificado selecionado no Windows.");
+                            if (loggedIn) { try { session.Logout(); } catch { } }
+                            continue;
+                        }
+
                         try
                         {
-                            if (tokenInfo.TokenFlags.LoginRequired)
+                            byte[] signature;
+                            using (var mechanism = session.Factories.MechanismFactory.Create(CKM.CKM_SHA1_RSA_PKCS))
                             {
-                                if (!tokenInfo.TokenFlags.ProtectedAuthenticationPath)
-                                    throw new NotSupportedException("O módulo PKCS#11 não anunciou um caminho de autenticação protegido. O RJP Signer não recolhe nem guarda o PIN do Cartão de Cidadão.");
                                 try
                                 {
-                                    session.Login(CKU.CKU_USER, (byte[])null);
-                                    loggedIn = true;
+                                    signature = session.Sign(mechanism, privateKey, canonicalSignedInfo);
                                 }
                                 catch (Pkcs11Exception ex)
                                 {
-                                    if (ex.RV != CKR.CKR_USER_ALREADY_LOGGED_IN) throw;
+                                    // Em cartões que exigem login mas expõem a chave antes dele,
+                                    // C_Sign pode devolver CKR_USER_NOT_LOGGED_IN. Fazemos então o
+                                    // login delegado ao próprio middleware e repetimos uma única vez.
+                                    if (ex.RV != CKR.CKR_USER_NOT_LOGGED_IN) throw;
+                                    try
+                                    {
+                                        session.Login(CKU.CKU_USER, (byte[])null);
+                                        loggedIn = true;
+                                    }
+                                    catch (Pkcs11Exception loginEx)
+                                    {
+                                        if (loginEx.RV != CKR.CKR_USER_ALREADY_LOGGED_IN) throw;
+                                    }
+                                    signature = session.Sign(mechanism, privateKey, canonicalSignedInfo);
                                 }
                             }
 
-                            using (var mechanism = session.Factories.MechanismFactory.Create(CKM.CKM_SHA1_RSA_PKCS))
-                                return session.Sign(mechanism, privateKey, canonicalSignedInfo);
+                            // Esta verificação associa inequivocamente a chave PKCS#11 à chave
+                            // pública do certificado escolhido no Windows.
+                            VerifyRsaSha1Locally(cert, canonicalSignedInfo, signature);
+                            return signature;
                         }
                         catch (Pkcs11Exception ex)
                         {
@@ -631,52 +684,129 @@ namespace RJP.Signer.Bridge
                     }
                 }
             }
-            throw new InvalidOperationException("O certificado selecionado no Windows não foi encontrado no Cartão de Cidadão/token PKCS#11, ou não foi localizada a chave privada RSA correspondente.");
+
+            var detail = diagnostics.Count == 0 ? "" : "\n\nDiagnóstico PKCS#11:\n" + string.Join("\n", diagnostics);
+            throw new InvalidOperationException(
+                "Não foi localizada no Cartão de Cidadão/token PKCS#11 a chave RSA de assinatura com o label oficial 'CITIZEN SIGNATURE CERTIFICATE'." + detail);
         }
 
-        private static bool TryFindCertificateId(ISession session, X509Certificate2 selectedCertificate, out byte[] keyId)
+        private static IObjectHandle FindCitizenSignaturePrivateKey(ISession session)
         {
-            keyId = null;
+            var exactLabels = new[]
+            {
+                "CITIZEN SIGNATURE CERTIFICATE",
+                "CITIZEN SIGNATURE KEY",
+                "CARTAO DE CIDADAO:CITIZEN SIGNATURE CERTIFICATE"
+            };
+
+            foreach (var label in exactLabels)
+            {
+                var template = new List<IObjectAttribute>
+                {
+                    session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_PRIVATE_KEY),
+                    session.Factories.ObjectAttributeFactory.Create(CKA.CKA_KEY_TYPE, CKK.CKK_RSA),
+                    session.Factories.ObjectAttributeFactory.Create(CKA.CKA_LABEL, label)
+                };
+                var found = session.FindAllObjects(template).FirstOrDefault();
+                if (found != null) return found;
+            }
+
+            // Fallback: enumera apenas chaves RSA privadas e escolhe explicitamente uma
+            // que contenha SIGNATURE no label, nunca AUTHENTICATION.
+            var allTemplate = new List<IObjectAttribute>
+            {
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_PRIVATE_KEY),
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_KEY_TYPE, CKK.CKK_RSA)
+            };
+            foreach (var handle in session.FindAllObjects(allTemplate))
+            {
+                var label = ReadPkcs11Label(session, handle);
+                var upper = (label ?? "").ToUpperInvariant();
+                if (upper.Contains("SIGNATURE") && !upper.Contains("AUTHENTICATION")) return handle;
+            }
+            return null;
+        }
+
+        private static X509Certificate2 FindCitizenSignatureCertificate(ISession session)
+        {
             var template = new List<IObjectAttribute>
             {
                 session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_CERTIFICATE),
                 session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CERTIFICATE_TYPE, CKC.CKC_X_509)
             };
-            var handles = session.FindAllObjects(template);
-            foreach (var handle in handles)
+            foreach (var handle in session.FindAllObjects(template))
             {
                 try
                 {
-                    var attrs = session.GetAttributeValue(handle, new List<CKA> { CKA.CKA_VALUE, CKA.CKA_ID });
-                    if (attrs.Count < 2 || attrs[0].CannotBeRead || attrs[1].CannotBeRead) continue;
+                    var label = ReadPkcs11Label(session, handle);
+                    var upper = (label ?? "").ToUpperInvariant();
+                    if (!upper.Contains("SIGNATURE") || upper.Contains("AUTHENTICATION")) continue;
+                    var attrs = session.GetAttributeValue(handle, new List<CKA> { CKA.CKA_VALUE });
+                    if (attrs.Count == 0 || attrs[0].CannotBeRead) continue;
                     var raw = attrs[0].GetValueAsByteArray();
                     if (raw == null || raw.Length == 0) continue;
-                    bool same;
-                    try
-                    {
-                        using (var tokenCert = new X509Certificate2(raw))
-                            same = NormalizeThumbprint(tokenCert.Thumbprint) == NormalizeThumbprint(selectedCertificate.Thumbprint);
-                    }
-                    catch { same = raw.SequenceEqual(selectedCertificate.RawData); }
-                    if (!same) continue;
-                    keyId = attrs[1].GetValueAsByteArray();
-                    return keyId != null && keyId.Length > 0;
+                    return new X509Certificate2(raw);
                 }
                 catch { }
             }
-            return false;
+            return null;
         }
 
-        private static IObjectHandle FindRsaSigningPrivateKey(ISession session, byte[] keyId)
+        private static bool CertificatesMatch(X509Certificate2 a, X509Certificate2 b)
         {
-            var template = new List<IObjectAttribute>
+            if (a == null || b == null) return false;
+            if (NormalizeThumbprint(a.Thumbprint) == NormalizeThumbprint(b.Thumbprint)) return true;
+            try
             {
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_PRIVATE_KEY),
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_KEY_TYPE, CKK.CKK_RSA),
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_ID, keyId),
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_SIGN, true)
-            };
-            return session.FindAllObjects(template).FirstOrDefault();
+                using (var ra = a.GetRSAPublicKey())
+                using (var rb = b.GetRSAPublicKey())
+                {
+                    if (ra == null || rb == null) return false;
+                    var pa = ra.ExportParameters(false);
+                    var pb = rb.ExportParameters(false);
+                    return pa.Modulus.SequenceEqual(pb.Modulus) && pa.Exponent.SequenceEqual(pb.Exponent);
+                }
+            }
+            catch { return false; }
+        }
+
+        private static string ReadPkcs11Label(ISession session, IObjectHandle handle)
+        {
+            try
+            {
+                var attrs = session.GetAttributeValue(handle, new List<CKA> { CKA.CKA_LABEL });
+                if (attrs.Count == 0 || attrs[0].CannotBeRead) return "";
+                var bytes = attrs[0].GetValueAsByteArray();
+                if (bytes == null || bytes.Length == 0) return "";
+                return Encoding.UTF8.GetString(bytes).Trim('\0', ' ', '\t', '\r', '\n');
+            }
+            catch { return ""; }
+        }
+
+        private static string DescribePkcs11SigningObjects(ISession session)
+        {
+            try
+            {
+                var items = new List<string>();
+                var classes = new[] { CKO.CKO_PRIVATE_KEY, CKO.CKO_CERTIFICATE };
+                foreach (var objectClass in classes)
+                {
+                    var template = new List<IObjectAttribute>
+                    {
+                        session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, objectClass)
+                    };
+                    foreach (var handle in session.FindAllObjects(template))
+                    {
+                        var label = ReadPkcs11Label(session, handle);
+                        if (string.IsNullOrWhiteSpace(label)) continue;
+                        var upper = label.ToUpperInvariant();
+                        if (!upper.Contains("SIGNATURE") && !upper.Contains("AUTHENTICATION")) continue;
+                        items.Add((objectClass == CKO.CKO_PRIVATE_KEY ? "KEY=" : "CERT=") + label);
+                    }
+                }
+                return items.Count == 0 ? "nenhum objeto de assinatura/autenticação visível" : string.Join(", ", items.Distinct());
+            }
+            catch (Exception ex) { return "diagnóstico indisponível: " + ex.Message; }
         }
 
         private static void VerifyRsaSha1Locally(X509Certificate2 cert, byte[] data, byte[] signature)

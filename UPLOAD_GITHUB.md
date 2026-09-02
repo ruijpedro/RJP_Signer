@@ -1,9 +1,8 @@
-# Upload completo para GitHub — RJP Signer V1.3.1
+# Upload completo para GitHub — RJP Signer V1.3.2
 
-1. Extrai o ZIP.
-2. Copia **todo** o conteúdo para a raiz do repositório RJP_Signer, incluindo `.github`.
-3. Confirma que `.github/workflows/` contém os 4 workflows.
-4. Faz commit/push.
-5. Em Actions, corre `Build RJP Signer Windows Installer`.
-6. Instala o artifact `RJP-Signer-Bridge-Setup-V1.3.1`.
-7. Confirma na WebApp que o Bridge reporta `V1.3.1` antes de assinar.
+1. Substitui todos os ficheiros do repositório pelos deste ZIP, incluindo `.github/workflows`.
+2. Commit/push.
+3. Actions → **Build RJP Signer Windows Installer** → Run workflow.
+4. Descarrega o artifact `RJP-Signer-Bridge-Setup-V1.3.2`.
+5. Instala a nova versão.
+6. Confirma na WebApp `Bridge ligado · V1.3.2` antes de assinar.

@@ -1,35 +1,19 @@
-# RJP Signer V1.3.1
+# RJP Signer V1.3.2
 
-> **V1.3.1:** corrige o build do Bridge no GitHub Actions adicionando a referência .NET Framework `System.Xml`, necessária pelo motor XMLDSIG/OPC.
+Assinatura digital local de DWFx com modo de compatibilidade Autodesk/Design Review e Cartão de Cidadão.
 
+## V1.3.2
 
-RJP Signer: DWF, DWFx, PDF e PDF/A. Nesta versão, a assinatura real ativa é o motor DWFx Autodesk/Design Review com Cartão de Cidadão RSA via PKCS#11.
+Esta versão corrige a localização da chave de assinatura no módulo oficial `pteidpkcs11.dll`.
+O SDK Autenticação.gov documenta o alias de assinatura como `CITIZEN SIGNATURE CERTIFICATE`; a V1.3.2 usa esse label em vez de depender de `CKA_ID`.
 
-## Requisitos Windows
+Fluxo DWFx:
 
-- Windows 10/11 64-bit.
-- Autenticação.gov instalado e atualizado.
-- Cartão de Cidadão inserido no leitor.
-- O middleware deve disponibilizar `C:\Windows\System32\pteidpkcs11.dll`.
-- Certificado de assinatura RSA válido.
+1. Selecionar DWFx e certificado de assinatura.
+2. Confirmar no Windows.
+3. Guardar como `*_ASSINADO.dwfx`.
+4. O Bridge cria o manifesto OPC, canonicaliza `SignedInfo` e usa PKCS#11 `CKM_SHA1_RSA_PKCS` apenas no modo legado Autodesk.
+5. O middleware oficial gere o PIN.
+6. A assinatura é verificada com a chave pública e depois pelo verificador OPC.
 
-## Como funciona o DWFx
-
-1. A WebApp envia o DWFx ao Bridge local.
-2. O Bridge confirma a operação e abre **Guardar como**.
-3. O Bridge cria a infraestrutura XMLDSIG/OPC e calcula os hashes SHA-1 das partes do DWFx, excluindo os TIFF tal como no ficheiro Autodesk de referência.
-4. O `SignedInfo` é colocado em `rsa-sha1` e canonicalizado.
-5. O módulo oficial PKCS#11 do Autenticação.gov assina esse `SignedInfo` em `CKM_SHA1_RSA_PKCS` dentro do Cartão de Cidadão.
-6. O Bridge incorpora o certificado real no package.
-7. Fecha e reabre o DWFx e exige `OPC Success` antes de considerar a operação concluída.
-
-> SHA-1 é utilizado **apenas** neste modo de compatibilidade DWFx legado. O motor PDF/PAdES moderno será SHA-256 ou superior.
-
-## GitHub Actions
-
-- Build RJP Signer Android APK
-- Build RJP Signer WebApp
-- Build RJP Signer Windows Bridge
-- Build RJP Signer Windows Installer
-
-Para testar esta versão, executa primeiro **Build RJP Signer Windows Installer**, instala o Setup V1.3.1 e confirma na WebApp: `Bridge ligado · V1.3.1`.
+Para testar: compila **Build RJP Signer Windows Installer**, instala a V1.3.2 e confirma `Bridge ligado · V1.3.2`.
