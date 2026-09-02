@@ -5,7 +5,7 @@ import { inspectDwfx } from './lib/dwfx.js';
 import { inspectPdf } from './lib/pdf.js';
 import { bridgeHealth, bridgePair, bridgeCertificates, bridgeVerifyDwfx, bridgeSignDwfx } from './lib/bridge.js';
 
-const APP_VERSION = '1.2.8';
+const APP_VERSION = '1.2.9';
 
 const TOKEN_KEY = 'rjp-signer-bridge-token-v1';
 const HISTORY_KEY = 'rjp-signer-history-v1';
@@ -70,7 +70,7 @@ app.innerHTML = `
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.2.8 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.2.9 · DWF / DWFx / PDF / PDF-A</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');

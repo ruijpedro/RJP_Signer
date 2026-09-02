@@ -30,6 +30,13 @@ if (!bridge.includes('ChooseSavePath') || !bridge.includes('X-RJP-Saved')) {
 if (!bridge.includes('BuildDiagnosticSavePath') || !bridge.includes('_ASSINADO_INVALIDO')) {
   throw new Error('Invalid-signature diagnostic preservation missing');
 }
+if (!bridge.includes('UseInsecureHashAlgorithms') || !bridge.includes('LegacyRsaSha1SignatureMethod') || !bridge.includes('ReadSignatureMethod')) {
+  throw new Error('Legacy RSA-SHA1 compatibility enforcement missing');
+}
+const appConfig = fs.readFileSync(new URL('bridge/RJP.Signer.Bridge/App.config', root), 'utf8');
+if (!appConfig.includes('Switch.System.Security.Cryptography.Xml.UseInsecureHashAlgorithms=true')) {
+  throw new Error('SignedXml SHA1 AppContext switch missing from App.config');
+}
 const bridgeJs = fs.readFileSync(new URL('src/lib/bridge.js', root), 'utf8');
 if (!bridgeJs.includes('savedByBridge')) throw new Error('WebApp save confirmation integration missing');
 const mainJs = fs.readFileSync(new URL('src/main.js', root), 'utf8');

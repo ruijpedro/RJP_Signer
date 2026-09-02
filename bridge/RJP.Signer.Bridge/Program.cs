@@ -22,8 +22,9 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.2.8";
+        private const string Version = "1.2.9";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
+        private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private static readonly HashSet<string> AllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -48,6 +49,11 @@ namespace RJP.Signer.Bridge
         [STAThread]
         private static void Main()
         {
+            // .NET Framework 4.7.1+ passou a escolher RSA-SHA256 por omissão no SignedXml.
+            // O DWFx Autodesk/Design Review de referência usa RSA-SHA1; este switch
+            // restaura o comportamento legado apenas neste Bridge de compatibilidade.
+            AppContext.SetSwitch("Switch.System.Security.Cryptography.Xml.UseInsecureHashAlgorithms", true);
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -233,7 +239,7 @@ namespace RJP.Signer.Bridge
                         {
                             ok = true, name = "RJP Signer Bridge", version = Version,
                             capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog" },
-                            compatibility = "Autodesk/OPC RSA-SHA1", pairingRequired = true
+                            compatibility = "Autodesk/OPC RSA-SHA1 (SignedXml legacy switch)", pairingRequired = true
                         }, origin); return;
                     }
                     if (req.Method == "POST" && req.Path == "/pair") { HandlePair(req, stream, origin); return; }
@@ -368,6 +374,16 @@ namespace RJP.Signer.Bridge
 
                         var created = manager.Sign(toSign, cert, new List<PackageRelationshipSelector>(), "SignatureIdValue");
                         if (created == null) throw new CryptographicException("O motor OPC não devolveu uma assinatura.");
+
+                        var actualSignatureMethod = ReadSignatureMethod(created.SignaturePart);
+                        if (!string.Equals(actualSignatureMethod, LegacyRsaSha1SignatureMethod, StringComparison.Ordinal))
+                        {
+                            throw new CryptographicException(
+                                "O .NET criou um SignatureMethod incompatível com Autodesk/Design Review: " +
+                                (actualSignatureMethod ?? "(vazio)") +
+                                ". Era esperado rsa-sha1. O ficheiro não será aceite como assinado.");
+                        }
+
                         package.Flush();
                     }
 
@@ -442,6 +458,23 @@ namespace RJP.Signer.Bridge
                 finally { try { File.Delete(temp); } catch { } }
             }
             finally { cert.Dispose(); }
+        }
+
+
+        private static string ReadSignatureMethod(PackagePart signaturePart)
+        {
+            if (signaturePart == null) return null;
+            using (var stream = signaturePart.GetStream(FileMode.Open, FileAccess.Read))
+            using (var reader = new StreamReader(stream, Encoding.UTF8, true, 4096, false))
+            {
+                var xml = reader.ReadToEnd();
+                var marker = "<SignatureMethod Algorithm=\"";
+                var start = xml.IndexOf(marker, StringComparison.Ordinal);
+                if (start < 0) return null;
+                start += marker.Length;
+                var end = xml.IndexOf('"', start);
+                return end > start ? xml.Substring(start, end - start) : null;
+            }
         }
 
         private static void VerifyDwfx(HttpRequest req, NetworkStream stream, string origin)
