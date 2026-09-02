@@ -1,22 +1,12 @@
-# RJP Signer — Changelog
+# RJP Signer V1.2.7
 
-## 1.2.6 — OPC verify after reopen
-- Corrige a verificação DWFx imediatamente após a assinatura.
-- Fluxo em duas fases: assinar e fechar completamente o package; reabrir em leitura e verificar; só depois guardar `_ASSINADO.dwfx`.
-- Mantém compatibilidade Autodesk/Design Review: XMLDSIG/OPC, RSA-SHA1/SHA-1, certificado em CertificatePart e exclusão dos overlays TIFF.
-- Mantém o diálogo Windows **Guardar como** obrigatório antes da operação.
+## Preservação de tentativa inválida
 
-## 1.2.5 — Guardar como obrigatório
-- O Bridge abre `Guardar como` para escolher o destino da cópia assinada.
+Quando o motor cria uma assinatura DWFx mas a validação OPC devolve `InvalidSignature`, a tentativa deixa de ser apagada.
 
-## 1.2.4 — Pacote FULL
-- Árvore completa do projeto e workflows RJP Signer.
+São gravados:
 
-## 1.2.3 — Version test fix
-- Versão dos testes e artifacts sincronizada com `package.json`.
+- `*_ASSINADO_INVALIDO.dwfx` — cópia técnica para diagnóstico;
+- `*_ASSINADO_INVALIDO.dwfx.txt` — relatório com versão, resultado OPC, signatário, assinaturas e partes protegidas.
 
-## 1.2.2 — Windows Installer fix
-- Correção de quoting no Inno Setup.
-
-## 1.2.1 — Android Capacitor fix
-- `capacitor.config.json` com `appId` explícito.
+O ficheiro é explicitamente inválido e não deve ser utilizado como documento assinado final. Quando a validação for `Success`, mantém-se `*_ASSINADO.dwfx`.

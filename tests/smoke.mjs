@@ -27,6 +27,9 @@ if (bridgeVersion !== pkg.version) throw new Error(`Bridge version ${bridgeVersi
 if (!bridge.includes('ChooseSavePath') || !bridge.includes('X-RJP-Saved')) {
   throw new Error('Mandatory Windows Save As integration missing');
 }
+if (!bridge.includes('BuildDiagnosticSavePath') || !bridge.includes('_ASSINADO_INVALIDO')) {
+  throw new Error('Invalid-signature diagnostic preservation missing');
+}
 const bridgeJs = fs.readFileSync(new URL('src/lib/bridge.js', root), 'utf8');
 if (!bridgeJs.includes('savedByBridge')) throw new Error('WebApp save confirmation integration missing');
 

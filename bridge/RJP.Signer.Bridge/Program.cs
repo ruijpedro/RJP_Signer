@@ -22,7 +22,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.2.6";
+        private const string Version = "1.2.7";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private static readonly HashSet<string> AllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -392,8 +392,29 @@ namespace RJP.Signer.Bridge
 
                         if (verifyResult != VerifyResult.Success)
                         {
-                            Log("Verificação pós-reabertura falhou: " + verifyResult + " | assinaturas=" + signatureCount + " | partes=" + signedParts);
-                            throw new CryptographicException("A assinatura foi criada, o DWFx foi fechado e reaberto, mas a verificação OPC falhou: " + verifyResult);
+                            // Preserva a tentativa inválida para diagnóstico.
+                            // Nunca é apresentada como documento assinado válido.
+                            var diagnosticPath = BuildDiagnosticSavePath(savePath);
+                            var diagnosticBytes = File.ReadAllBytes(temp);
+                            File.WriteAllBytes(diagnosticPath, diagnosticBytes);
+                            var reportPath = diagnosticPath + ".txt";
+                            File.WriteAllText(reportPath,
+                                "RJP Signer — diagnóstico de assinatura DWFx" + Environment.NewLine +
+                                "Versão Bridge: " + Version + Environment.NewLine +
+                                "Ficheiro origem: " + filename + Environment.NewLine +
+                                "Resultado OPC: " + verifyResult + Environment.NewLine +
+                                "Assinaturas: " + signatureCount + Environment.NewLine +
+                                "Partes protegidas: " + signedParts + Environment.NewLine +
+                                "Signatário: " + signer + Environment.NewLine +
+                                "Data: " + signedAt.ToString("o") + Environment.NewLine +
+                                "Certificado: " + certStatus + Environment.NewLine +
+                                "IMPORTANTE: este ficheiro NÃO deve ser usado como documento assinado válido." + Environment.NewLine,
+                                Encoding.UTF8);
+                            Log("Verificação pós-reabertura falhou: " + verifyResult + " | assinaturas=" + signatureCount + " | partes=" + signedParts + " | diagnóstico=" + diagnosticPath);
+                            throw new CryptographicException(
+                                "A assinatura foi criada mas a verificação OPC falhou: " + verifyResult +
+                                ". Foi guardada uma cópia de diagnóstico em: " + diagnosticPath +
+                                ". Não uses esse ficheiro como assinatura válida; envia-o para análise.");
                         }
                     }
 
@@ -504,6 +525,22 @@ namespace RJP.Signer.Bridge
             if (stem.EndsWith("_ASSINADO", StringComparison.OrdinalIgnoreCase))
                 return stem + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ext;
             return stem + "_ASSINADO" + ext;
+        }
+        private static string BuildDiagnosticSavePath(string requestedSavePath)
+        {
+            var dir = Path.GetDirectoryName(requestedSavePath);
+            if (string.IsNullOrWhiteSpace(dir)) dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var stem = Path.GetFileNameWithoutExtension(requestedSavePath);
+            if (stem.EndsWith("_ASSINADO", StringComparison.OrdinalIgnoreCase))
+                stem = stem.Substring(0, stem.Length - "_ASSINADO".Length);
+            var candidate = Path.Combine(dir, stem + "_ASSINADO_INVALIDO.dwfx");
+            var n = 2;
+            while (File.Exists(candidate))
+            {
+                candidate = Path.Combine(dir, stem + "_ASSINADO_INVALIDO_" + n + ".dwfx");
+                n++;
+            }
+            return candidate;
         }
         private static string ChooseSavePath(string outputName)
         {
