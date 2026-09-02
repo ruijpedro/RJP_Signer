@@ -1,5 +1,7 @@
 #define MyAppName "RJP Signer Bridge"
-#define MyAppVersion "1.2.2"
+#ifndef MyAppVersion
+#define MyAppVersion "1.2.3"
+#endif
 #define MyAppPublisher "RJP"
 #define MyAppExeName "RJP.Signer.Bridge.exe"
 
@@ -14,7 +16,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=output
-OutputBaseFilename=RJP_Signer_Bridge_Setup_V1.2.2
+OutputBaseFilename=RJP_Signer_Bridge_Setup_{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

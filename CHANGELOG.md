@@ -1,3 +1,10 @@
+# V1.2.3
+
+- Corrige o smoke test que estava preso à versão 1.2.0.
+- Testes passam a validar a versão atual do package.json sem hardcode antigo.
+- Artifacts APK, Bridge e Installer passam a usar automaticamente a versão do package.json.
+- Inno Setup recebe a versão do workflow e gera o nome do instalador automaticamente.
+
 # V1.2.2
 
 ## Correção Build Windows Installer
