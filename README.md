@@ -1,4 +1,4 @@
-# RJP Signer V1.0.0
+# RJP Signer V1.0.1
 
 WebApp local para análise, preparação e futura assinatura digital de **DWF, DWFx, PDF e PDF/A**.
 
@@ -36,3 +36,16 @@ A pasta `dist/` fica pronta para publicação estática.
 2. Motor DWFx compatível com assinatura Autodesk.
 3. Motor DWF clássico após análise de par original + assinado.
 4. PDF/PDF-A PAdES com assinatura visível/invisível, lote e múltiplas assinaturas.
+
+
+## GitHub Actions
+A V1.0.1 inclui os dois workflows em `.github/workflows/`:
+- `build-webapp.yml` — testa, compila e publica `dist/` no GitHub Pages.
+- `build-android.yml` — testa, compila a WebApp, cria/sincroniza o projeto Capacitor e gera um APK debug.
+
+O projeto usa Node.js 22 e Java 21 no workflow Android.
+
+## Android / Capacitor
+- App ID: `pt.rjp.signer`
+- App Name: `RJP Signer`
+- WebDir: `dist`

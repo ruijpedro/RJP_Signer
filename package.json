@@ -1,18 +1,24 @@
 {
   "name": "rjp-signer",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node tests/smoke.mjs"
+    "test": "node tests/smoke.mjs",
+    "android:add": "cap add android",
+    "android:sync": "cap sync android",
+    "android:open": "cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
     "jszip": "^3.10.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
     "vite": "^7.1.3"
   }
 }
