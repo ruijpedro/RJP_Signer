@@ -33,7 +33,7 @@ jobs:
       - name: Build Bridge Release x64
         shell: pwsh
         run: |
-          msbuild bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m
+          msbuild bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj /restore /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m
 
       - name: Install Inno Setup
         shell: pwsh
