@@ -30,6 +30,14 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Validate Bridge framework references
+        shell: pwsh
+        run: |
+          $proj = Get-Content bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj -Raw
+          if ($proj -notmatch 'Reference Include="System.Xml"') { throw "System.Xml reference missing" }
+          Write-Host "Bridge references OK: System.Xml + System.Security + WindowsBase"
+
+
       - name: Build Bridge Release x64
         shell: pwsh
         run: |
