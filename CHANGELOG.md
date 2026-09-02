@@ -1,4 +1,10 @@
-# RJP Signer V1.3.0
+# RJP Signer V1.3.1
+
+## Correção V1.3.1
+- Corrigida a compilação .NET Framework 4.8 do Bridge: acrescentada referência explícita a `System.Xml.dll`.
+- `System.Security.Cryptography.Xml` continua fornecido por `System.Security.dll`; `System.Xml` é necessário para `XmlDocument`, `XmlElement` e canonicalização XMLDSIG.
+- Smoke test passa agora a validar a presença da referência `System.Xml`.
+
 
 ## DWFx PKCS#11 — Cartão de Cidadão
 
@@ -12,4 +18,4 @@
 - A assinatura devolvida pelo cartão é validada localmente com a chave pública antes de ser gravada no DWFx.
 - O DWFx é fechado, reaberto e só é aceite se `VerifySignatures(false)` devolver `Success`.
 - Mantém `_ASSINADO_INVALIDO.dwfx` + relatório se a validação final falhar.
-- Bridge/WebApp/Installer sincronizados em V1.3.0.
+- Bridge/WebApp/Installer sincronizados em V1.3.1.

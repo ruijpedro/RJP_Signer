@@ -26,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.3.0";
+        private const string Version = "1.3.1";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };

@@ -1,4 +1,7 @@
-# RJP Signer V1.3.0
+# RJP Signer V1.3.1
+
+> **V1.3.1:** corrige o build do Bridge no GitHub Actions adicionando a referência .NET Framework `System.Xml`, necessária pelo motor XMLDSIG/OPC.
+
 
 RJP Signer: DWF, DWFx, PDF e PDF/A. Nesta versão, a assinatura real ativa é o motor DWFx Autodesk/Design Review com Cartão de Cidadão RSA via PKCS#11.
 
@@ -29,4 +32,4 @@ RJP Signer: DWF, DWFx, PDF e PDF/A. Nesta versão, a assinatura real ativa é o 
 - Build RJP Signer Windows Bridge
 - Build RJP Signer Windows Installer
 
-Para testar esta versão, executa primeiro **Build RJP Signer Windows Installer**, instala o Setup V1.3.0 e confirma na WebApp: `Bridge ligado · V1.3.0`.
+Para testar esta versão, executa primeiro **Build RJP Signer Windows Installer**, instala o Setup V1.3.1 e confirma na WebApp: `Bridge ligado · V1.3.1`.

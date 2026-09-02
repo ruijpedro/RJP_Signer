@@ -38,6 +38,7 @@ if (!bridge.includes('ReplaceEmbeddedCertificate') || !bridge.includes('Canonica
 }
 const csproj = fs.readFileSync(new URL('bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj', root), 'utf8');
 if (!csproj.includes('Pkcs11Interop') || !csproj.includes('5.3.0')) throw new Error('Pkcs11Interop package reference missing');
+if (!csproj.includes('<Reference Include="System.Xml" />')) throw new Error('System.Xml framework reference missing');
 const bridgeJs = fs.readFileSync(new URL('src/lib/bridge.js', root), 'utf8');
 if (!bridgeJs.includes('savedByBridge')) throw new Error('WebApp save confirmation integration missing');
 const mainJs = fs.readFileSync(new URL('src/main.js', root), 'utf8');
