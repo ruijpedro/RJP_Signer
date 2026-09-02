@@ -1,4 +1,4 @@
-name: Build Windows Installer
+name: Build RJP Signer Windows Installer
 
 on:
   workflow_dispatch:

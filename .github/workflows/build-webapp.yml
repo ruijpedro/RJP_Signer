@@ -1,4 +1,4 @@
-name: Build WebApp
+name: Build RJP Signer WebApp
 
 on:
   workflow_dispatch:

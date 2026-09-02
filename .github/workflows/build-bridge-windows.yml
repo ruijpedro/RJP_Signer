@@ -1,4 +1,4 @@
-name: Build Windows Bridge
+name: Build RJP Signer Windows Bridge
 
 on:
   workflow_dispatch:
