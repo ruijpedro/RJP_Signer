@@ -6,45 +6,87 @@ async function request(path, options = {}) {
   try {
     const req = new Request(url, { ...init, targetAddressSpace: 'loopback' });
     return await fetch(req);
-  } catch (first) {
+  } catch {
     return await fetch(url, init);
   }
 }
 
-export async function bridgeHealth() {
-  const r = await request('/health');
-  if (!r.ok) throw new Error(`Bridge respondeu HTTP ${r.status}`);
-  return r.json();
+async function jsonOrError(r) {
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.ok === false) {
+    const err = new Error(data.error || `Bridge respondeu HTTP ${r.status}`);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
 }
 
-export async function bridgeCertificates() {
-  const r = await request('/certificates');
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok || !data.ok) throw new Error(data.error || `Bridge respondeu HTTP ${r.status}`);
+function authHeaders(token, extra = {}) {
+  return { ...extra, ...(token ? { 'X-RJP-Token': token } : {}) };
+}
+
+export async function bridgeHealth() {
+  const r = await request('/health');
+  return jsonOrError(r);
+}
+
+export async function bridgePair(code) {
+  const r = await request('/pair', {
+    method: 'POST',
+    headers: { 'X-RJP-Pair-Code': String(code || '').trim() }
+  });
+  return jsonOrError(r);
+}
+
+export async function bridgeCertificates(token) {
+  const r = await request('/certificates', { headers: authHeaders(token) });
+  const data = await jsonOrError(r);
   return data.certificates || [];
 }
 
-export async function bridgeSignDwfx(file, thumbprint) {
+export async function bridgeVerifyDwfx(file, token) {
+  const r = await request('/verify/dwfx', {
+    method: 'POST',
+    headers: authHeaders(token, {
+      'Content-Type': 'application/octet-stream',
+      'X-RJP-Filename': encodeURIComponent(file.name)
+    }),
+    body: file
+  });
+  return jsonOrError(r);
+}
+
+export async function bridgeSignDwfx(file, thumbprint, token) {
   const r = await request('/sign/dwfx', {
     method: 'POST',
-    headers: {
+    headers: authHeaders(token, {
       'Content-Type': 'application/octet-stream',
       'X-RJP-Certificate': thumbprint,
-      'X-RJP-Filename': encodeURIComponent(file.name)
-    },
+      'X-RJP-Filename': encodeURIComponent(file.name),
+      'X-RJP-Sign-Mode': 'autodesk-compat'
+    }),
     body: file
   });
   if (!r.ok) {
     const data = await r.json().catch(() => ({}));
-    throw new Error(data.error || `Falha de assinatura (HTTP ${r.status})`);
+    const err = new Error(data.error || `Falha de assinatura (HTTP ${r.status})`);
+    err.status = r.status;
+    throw err;
   }
   const blob = await r.blob();
-  const header = r.headers.get('X-RJP-Output-Name');
-  const signer = r.headers.get('X-RJP-Signer');
+  const get = key => {
+    const value = r.headers.get(key);
+    return value ? decodeURIComponent(value) : '';
+  };
   return {
     blob,
-    outputName: header ? decodeURIComponent(header) : file.name.replace(/\.dwfx$/i, '_ASSINADO.dwfx'),
-    signer: signer ? decodeURIComponent(signer) : ''
+    outputName: get('X-RJP-Output-Name') || file.name.replace(/\.dwfx$/i, '_ASSINADO.dwfx'),
+    signer: get('X-RJP-Signer'),
+    verifyResult: get('X-RJP-Verify-Result'),
+    signedParts: Number(get('X-RJP-Signed-Parts') || 0),
+    signatureCount: Number(get('X-RJP-Signature-Count') || 0),
+    algorithm: get('X-RJP-Algorithm') || 'RSA-SHA1 / SHA-1',
+    signedAt: get('X-RJP-Signed-At')
   };
 }
 

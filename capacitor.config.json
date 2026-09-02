@@ -1,0 +1,8 @@
+{
+  "appId": "pt.rjp.signer",
+  "appName": "RJP Signer",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
