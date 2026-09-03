@@ -1,4 +1,4 @@
-RJP Signer V1.3.3 — Manifesto de ficheiros
+RJP Signer V1.4.0 — Manifesto de ficheiros
 
 .github/workflows/build-android.yml
 .github/workflows/build-bridge-windows.yml

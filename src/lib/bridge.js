@@ -56,14 +56,15 @@ export async function bridgeVerifyDwfx(file, token) {
   return jsonOrError(r);
 }
 
-export async function bridgeSignDwfx(file, thumbprint, token) {
+export async function bridgeSignDwfx(file, thumbprint, token, signMethod = 'cc') {
   const r = await request('/sign/dwfx', {
     method: 'POST',
     headers: authHeaders(token, {
       'Content-Type': 'application/octet-stream',
       'X-RJP-Certificate': thumbprint,
       'X-RJP-Filename': encodeURIComponent(file.name),
-      'X-RJP-Sign-Mode': 'autodesk-compat'
+      'X-RJP-Sign-Mode': 'autodesk-compat',
+      'X-RJP-Sign-Method': signMethod
     }),
     body: file
   });

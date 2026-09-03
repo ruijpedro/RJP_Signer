@@ -1,13 +1,9 @@
-# RJP Signer V1.3.3
+# RJP Signer V1.4.0
 
-## PKCS#11 — chave e certificado corretamente separados
-
-- Corrigida a pesquisa da chave privada: `CITIZEN SIGNATURE KEY`.
-- Removido `CKA_KEY_TYPE` do template inicial de pesquisa para evitar incompatibilidades de filtragem do middleware.
-- Mantido fallback apenas para chaves privadas com `SIGNATURE` e nunca `AUTHENTICATION`.
-- O certificado do titular é procurado primeiro por `CITIZEN SIGNATURE CERTIFICATE`.
-- `SIGNATURE SUB CA`, `ROOT` e certificados de autenticação são excluídos do fallback.
-- Uma eventual diferença entre certificado exposto pelo token e certificado Windows deixa de bloquear prematuramente; a correspondência é confirmada pela verificação criptográfica da assinatura após `C_Sign`.
-- Mantido `CKM_SHA1_RSA_PKCS` exclusivamente no modo de compatibilidade Autodesk/Design Review.
-- Mantidos Guardar Como obrigatório, diagnóstico `_ASSINADO_INVALIDO.dwfx`, emparelhamento e bloqueio de versões incompatíveis do Bridge.
-- Bridge/WebApp/Installer sincronizados em V1.3.3.
+- Novo seletor **Cartão de Cidadão / Chave Móvel Digital**.
+- Deteção de certificados CMD registados no Windows.
+- Instruções na WebApp para registar o certificado CMD através do Autenticação.gov.
+- Motor DWFx passa a tentar RSA-SHA1 pela camada criptográfica nativa do Windows, evitando o login PKCS#11 nulo que podia produzir mensagens incorretas de PIN.
+- PKCS#11 permanece no projeto para diagnóstico/compatibilidade, mas não é usado automaticamente no caminho principal da V1.4.
+- Verificação OPC continua obrigatória antes de aceitar o ficheiro como assinado.
+- Bridge/WebApp/Installer sincronizados em V1.4.0.

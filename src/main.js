@@ -5,7 +5,7 @@ import { inspectDwfx } from './lib/dwfx.js';
 import { inspectPdf } from './lib/pdf.js';
 import { bridgeHealth, bridgePair, bridgeCertificates, bridgeVerifyDwfx, bridgeSignDwfx } from './lib/bridge.js';
 
-const APP_VERSION = '1.3.3';
+const APP_VERSION = '1.4.0';
 
 const TOKEN_KEY = 'rjp-signer-bridge-token-v1';
 const HISTORY_KEY = 'rjp-signer-history-v1';
@@ -26,9 +26,9 @@ app.innerHTML = `
     </section>
 
     <section class="hero">
-      <span class="eyebrow">V1.3 · PKCS#11 + CARTÃO DE CIDADÃO</span>
+      <span class="eyebrow">V1.4 · CARTÃO DE CIDADÃO + CHAVE MÓVEL DIGITAL</span>
       <h1>Assinar. Verificar. Preservar.</h1>
-      <p>Os documentos ficam no teu computador e a chave privada nunca sai do Cartão de Cidadão/token.</p>
+      <p>Escolhe Cartão de Cidadão ou Chave Móvel Digital. O Bridge usa a camada criptográfica oficial do Windows/Autenticação.gov.</p>
     </section>
 
     <section id="drop" class="drop">
@@ -45,8 +45,8 @@ app.innerHTML = `
 
     <section id="list" class="list"><div class="empty">Ainda não existem documentos adicionados.</div></section>
 
-    <section class="notice good"><strong>DWFx</strong><span>Assinatura real no modo <b>Compatibilidade Autodesk/Design Review</b>, com confirmação no Windows antes de cada assinatura e verificação OPC após a criação.</span></section>
-    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. Os motores de assinatura DWF clássico e PAdES/PDF-A permanecem desativados até serem validados — a aplicação não apresenta uma assinatura fictícia.</span></section>
+    <section class="notice good"><strong>DWFx</strong><span>Assinatura real no modo <b>Compatibilidade Autodesk/Design Review</b>. Podes escolher <b>Cartão de Cidadão</b> ou <b>Chave Móvel Digital</b> quando o respetivo certificado estiver registado no Windows.</span></section>
+    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. A arquitetura V1.4 fica preparada para os dois métodos também nestes formatos; os motores DWF clássico e PAdES/PDF-A continuam desativados até validação.</span></section>
 
     <section class="historybox">
       <div class="sectionhead"><div><h2>Histórico local</h2><p>Guarda apenas metadados, nunca os documentos nem o PIN.</p></div><button id="clearHistory">Limpar histórico</button></div>
@@ -63,14 +63,19 @@ app.innerHTML = `
 
   <div id="signModal" class="modal hidden"><div class="modalbox">
     <button data-close="sign" class="x">×</button><h2>Assinar DWFx</h2>
-    <p id="modalText">Seleciona o certificado de assinatura. O Bridge abrirá sempre a janela do Windows <b>Guardar como</b> com o nome *_ASSINADO.dwfx antes de pedir o PIN.</p>
+    <p id="modalText">Escolhe o método de assinatura. O Bridge abrirá sempre a janela do Windows <b>Guardar como</b> com o nome *_ASSINADO.dwfx antes da autenticação.</p>
+    <div class="methodpicker" role="radiogroup" aria-label="Método de assinatura">
+      <label class="methodcard"><input type="radio" name="signMethod" value="cc" checked><span><b>Cartão de Cidadão</b><small>Cartão físico + PIN de assinatura</small></span></label>
+      <label class="methodcard"><input type="radio" name="signMethod" value="cmd"><span><b>Chave Móvel Digital</b><small>Certificado CMD registado no Windows</small></span></label>
+    </div>
+    <div id="methodHelp" class="methodhelp"></div>
     <label>Certificado<select id="certSelect"></select></label><div id="certHelp" class="certhelp"></div>
-    <div class="compatnote"><b>Modo:</b> Compatibilidade Autodesk/Design Review · XMLDSIG/OPC · SHA-1 legado apenas para este formato.</div>
+    <div class="compatnote"><b>DWFx:</b> Compatibilidade Autodesk/Design Review exige XMLDSIG/OPC RSA-SHA1. O Bridge tenta a assinatura através do fornecedor criptográfico oficial do Windows; se a CMD não aceitar RSA-SHA1, usa Cartão de Cidadão para DWFx.</div>
     <div class="modalactions"><button data-close="sign">Cancelar</button><button id="confirmSign" class="primary">Assinar e guardar…</button></div>
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.3.3 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.4.0 · DWF / DWFx / PDF / PDF-A</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');
@@ -78,7 +83,7 @@ const signAll = $('#signAll'), verifyAll = $('#verifyAll'), clearBtn = $('#clear
 const connectBridge = $('#connectBridge'), pairBridge = $('#pairBridge');
 const bridgeDot = $('#bridgeDot'), bridgeState = $('#bridgeState'), bridgeInfo = $('#bridgeInfo'), cardBadge = $('#cardBadge');
 const pairModal = $('#pairModal'), pairCode = $('#pairCode'), confirmPair = $('#confirmPair');
-const signModal = $('#signModal'), certSelect = $('#certSelect'), certHelp = $('#certHelp'), confirmSign = $('#confirmSign');
+const signModal = $('#signModal'), certSelect = $('#certSelect'), certHelp = $('#certHelp'), methodHelp = $('#methodHelp'), confirmSign = $('#confirmSign');
 const historyEl = $('#history');
 
 let docs = [];
@@ -102,6 +107,7 @@ connectBridge.onclick = () => connect(true);
 pairBridge.onclick = openPairDialog;
 confirmPair.onclick = doPair;
 certSelect.onchange = updateCertHelp;
+document.querySelectorAll('input[name="signMethod"]').forEach(r => r.onchange = updateMethodUI);
 confirmSign.onclick = signSelected;
 $('#clearHistory').onclick = () => { localStorage.removeItem(HISTORY_KEY); renderHistory(); };
 document.querySelectorAll('[data-close="pair"]').forEach(b => b.onclick = () => pairModal.classList.add('hidden'));
@@ -141,10 +147,10 @@ async function connect(showToast = false) {
     try {
       certs = await bridgeCertificates(token);
       paired = true; pairBridge.classList.add('hidden');
-      const cc = chooseCertificate(certs);
+      const cc = chooseCertificate(certs, 'cc') || chooseCertificate(certs, 'cmd');
       if (cc) {
         cardBadge.className = 'badge ok';
-        cardBadge.textContent = cc.citizenCard ? 'Cartão de Cidadão detetado' : 'Certificado de assinatura detetado';
+        cardBadge.textContent = cc.mobileKey ? 'Chave Móvel Digital detetada' : (cc.citizenCard ? 'Cartão de Cidadão detetado' : 'Certificado de assinatura detetado');
         bridgeState.textContent = `Bridge ligado · V${bridge.version}`;
         bridgeInfo.textContent = cc.subject;
       } else {
@@ -240,52 +246,88 @@ async function openSignDialog() {
   try { certs = await bridgeCertificates(token); }
   catch (e) { if (e.status === 401) openPairDialog(); else toast(e.message, true); return; }
   const usable = certs.filter(c => c.valid);
-  if (!usable.length) { toast('Não encontrei um certificado válido com chave privada. Confirma o Cartão de Cidadão.', true); return; }
-  const preferred = chooseCertificate(usable);
-  certSelect.innerHTML = usable.map(c => `<option value="${esc(c.thumbprint)}" ${preferred && c.thumbprint === preferred.thumbprint ? 'selected' : ''}>${esc(c.subject)}${c.citizenCard ? ' · Cartão de Cidadão' : ''}${c.recommended ? ' · assinatura' : ''}</option>`).join('');
-  $('#modalText').textContent = `${eligible.length} DWFx pronto(s). Depois da confirmação, o Windows abrirá sempre “Guardar como” com o nome *_ASSINADO.dwfx; só depois será pedido o PIN oficial do cartão/token.`;
-  updateCertHelp(); signModal.classList.remove('hidden');
+  if (!usable.length) { toast('Não encontrei certificados válidos com chave privada no Windows.', true); return; }
+  const ccAvailable = usable.some(c => c.citizenCard && !c.mobileKey);
+  const cmdAvailable = usable.some(c => c.mobileKey);
+  const initial = ccAvailable ? 'cc' : (cmdAvailable ? 'cmd' : 'cc');
+  document.querySelectorAll('input[name="signMethod"]').forEach(r => { r.checked = r.value === initial; });
+  $('#modalText').textContent = `${eligible.length} DWFx pronto(s). O Windows abrirá “Guardar como” antes da autenticação. Escolhe Cartão de Cidadão ou Chave Móvel Digital.`;
+  updateMethodUI();
+  signModal.classList.remove('hidden');
 }
 
-function chooseCertificate(list) {
-  return list.find(c => c.valid && c.citizenCard && c.recommended) ||
-         list.find(c => c.valid && c.recommended) ||
-         list.find(c => c.valid && c.citizenCard) ||
-         list.find(c => c.valid) || null;
+function currentSignMethod() {
+  return document.querySelector('input[name="signMethod"]:checked')?.value || 'cc';
+}
+
+function methodCertificates(method) {
+  const valid = certs.filter(c => c.valid);
+  if (method === 'cmd') return valid.filter(c => c.mobileKey);
+  return valid.filter(c => c.citizenCard && !c.mobileKey);
+}
+
+function chooseCertificate(list, method = 'cc') {
+  const scoped = method === 'cmd'
+    ? list.filter(c => c.mobileKey)
+    : list.filter(c => c.citizenCard && !c.mobileKey);
+  return scoped.find(c => c.valid && c.recommended) ||
+         scoped.find(c => c.valid) || null;
+}
+
+function updateMethodUI() {
+  const method = currentSignMethod();
+  const usable = methodCertificates(method);
+  const preferred = chooseCertificate(usable, method);
+  certSelect.innerHTML = usable.map(c => `<option value="${esc(c.thumbprint)}" ${preferred && c.thumbprint === preferred.thumbprint ? 'selected' : ''}>${esc(c.subject)}${c.mobileKey ? ' · Chave Móvel Digital' : ' · Cartão de Cidadão'}${c.recommended ? ' · assinatura' : ''}</option>`).join('');
+  if (method === 'cmd') {
+    methodHelp.innerHTML = usable.length
+      ? '<b>Chave Móvel Digital:</b> será usado o certificado CMD registado no Windows pela aplicação Autenticação.gov. A autenticação é feita pelo fornecedor oficial.'
+      : '<b>CMD ainda não registada no Windows.</b> Na aplicação Autenticação.gov abre <i>Configuração de assinaturas → Chave Móvel Digital → Registar</i> e depois carrega em Atualizar no RJP Signer.';
+  } else {
+    methodHelp.innerHTML = usable.length
+      ? '<b>Cartão de Cidadão:</b> usa o certificado de assinatura do cartão físico e a camada criptográfica do Windows/Autenticação.gov.'
+      : '<b>Cartão de Cidadão não detetado.</b> Insere o cartão no leitor, aguarda o registo do certificado e carrega em Atualizar.';
+  }
+  confirmSign.disabled = !usable.length;
+  updateCertHelp();
 }
 
 function updateCertHelp() {
   const c = certs.find(x => x.thumbprint === certSelect.value);
   if (!c) { certHelp.textContent = ''; return; }
-  certHelp.innerHTML = `<b>${esc(c.subject)}</b><br>Validade: ${formatDate(c.notBefore)} → ${formatDate(c.notAfter)}<br>Uso: ${esc(c.keyUsage || 'não indicado')}<br>${c.citizenCard ? '✓ Certificado do Cartão de Cidadão/Autenticação.gov detetado.' : 'Certificado Windows com chave privada.'}`;
+  const source = c.mobileKey ? '✓ Certificado da Chave Móvel Digital registado no Windows.' : (c.citizenCard ? '✓ Certificado do Cartão de Cidadão/Autenticação.gov detetado.' : 'Certificado Windows com chave privada.');
+  certHelp.innerHTML = `<b>${esc(c.subject)}</b><br>Validade: ${formatDate(c.notBefore)} → ${formatDate(c.notAfter)}<br>Uso: ${esc(c.keyUsage || 'não indicado')}<br>${source}`;
 }
 
 async function signSelected() {
+  const method = currentSignMethod();
   const cert = certs.find(c => c.thumbprint === certSelect.value);
   if (!cert || !cert.valid) { toast('Seleciona um certificado válido.', true); return; }
+  if (method === 'cmd' && !cert.mobileKey) { toast('Seleciona um certificado da Chave Móvel Digital.', true); return; }
+  if (method === 'cc' && (!cert.citizenCard || cert.mobileKey)) { toast('Seleciona o certificado de assinatura do Cartão de Cidadão.', true); return; }
   const eligible = docs.filter(d => d.type.family === 'DWFx' && !d.detail.signed);
   signing = true; confirmSign.disabled = true; certSelect.disabled = true; confirmSign.textContent = 'A preparar Guardar como…'; render();
   let done = 0;
   try {
     for (const d of eligible) {
       d.status = 'A aguardar confirmação e Guardar como no Windows…'; render();
-      const result = await bridgeSignDwfx(d.file, cert.thumbprint, token);
+      const result = await bridgeSignDwfx(d.file, cert.thumbprint, token, method);
       if (!result.savedByBridge) downloadBlob(result.blob, result.outputName);
       d.status = result.savedByBridge ? `✓ Assinado e guardado como ${result.savedName || result.outputName}` : `✓ Criado ${result.outputName}`;
       d.verification = { valid: result.verifyResult === 'Success', verifyResult: result.verifyResult, signer: result.signer, signedParts: result.signedParts, signatureCount: result.signatureCount, signedAt: result.signedAt };
       addHistory({
-        name: result.savedName || result.outputName, source: d.file.name, format: 'DWFx', signer: result.signer || cert.subject,
+        name: result.savedName || result.outputName, source: d.file.name, format: 'DWFx', method: method === 'cmd' ? 'Chave Móvel Digital' : 'Cartão de Cidadão', signer: result.signer || cert.subject,
         date: result.signedAt || new Date().toISOString(), hashSource: d.hash, verification: result.verifyResult || 'Success', signedParts: result.signedParts, algorithm: result.algorithm
       });
       done++; render(); renderHistory();
     }
     signModal.classList.add('hidden');
-    toast(`${done} DWFx assinado(s), verificado(s) e guardado(s) como *_ASSINADO.dwfx.`);
+    toast(`${done} DWFx assinado(s), verificado(s) e guardado(s) com ${method === 'cmd' ? 'Chave Móvel Digital' : 'Cartão de Cidadão'}.`);
   } catch (e) {
     if (e.status === 401) { token = ''; localStorage.removeItem(TOKEN_KEY); paired = false; }
     toast(e.message || 'Falha durante a assinatura.', true);
   } finally {
-    signing = false; confirmSign.disabled = false; certSelect.disabled = false; confirmSign.textContent = 'Assinar e guardar…'; render();
+    signing = false; certSelect.disabled = false; confirmSign.textContent = 'Assinar e guardar…'; updateMethodUI(); render();
   }
 }
 
@@ -297,7 +339,7 @@ function getHistory() { try { return JSON.parse(localStorage.getItem(HISTORY_KEY
 function renderHistory() {
   const history = getHistory();
   if (!history.length) { historyEl.innerHTML = '<div class="empty small">Ainda não há assinaturas registadas neste browser.</div>'; return; }
-  historyEl.innerHTML = `<div class="historylist">${history.slice(0, 12).map(h => `<div class="historyrow"><div><b>${esc(h.name)}</b><small>${esc(h.signer || '')}</small></div><div><span class="statusok">✓ ${esc(h.verification || 'Success')}</span><small>${formatDateTime(h.date)} · ${esc(h.algorithm || '')}</small></div></div>`).join('')}</div>`;
+  historyEl.innerHTML = `<div class="historylist">${history.slice(0, 12).map(h => `<div class="historyrow"><div><b>${esc(h.name)}</b><small>${esc(h.signer || '')}</small></div><div><span class="statusok">✓ ${esc(h.verification || 'Success')}</span><small>${formatDateTime(h.date)}${h.method ? ' · ' + esc(h.method) : ''} · ${esc(h.algorithm || '')}</small></div></div>`).join('')}</div>`;
 }
 
 function render() {

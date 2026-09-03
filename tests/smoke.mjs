@@ -30,8 +30,14 @@ if (!bridge.includes('ChooseSavePath') || !bridge.includes('X-RJP-Saved')) {
 if (!bridge.includes('BuildDiagnosticSavePath') || !bridge.includes('_ASSINADO_INVALIDO')) {
   throw new Error('Invalid-signature diagnostic preservation missing');
 }
+if (!bridge.includes('SignRsaSha1WithWindowsProvider') || !bridge.includes('HashAlgorithmName.SHA1') || !bridge.includes('RSASignaturePadding.Pkcs1')) {
+  throw new Error('Windows RSA-SHA1 signing engine missing');
+}
 if (!bridge.includes('SignRsaSha1WithCitizenCardPkcs11') || !bridge.includes('CKM.CKM_SHA1_RSA_PKCS') || !bridge.includes('pteidpkcs11.dll')) {
-  throw new Error('PKCS#11 RSA-SHA1 engine missing');
+  throw new Error('PKCS#11 diagnostic compatibility engine missing');
+}
+if (!bridge.includes('LooksLikeMobileKey') || !bridge.includes('mobileKey')) {
+  throw new Error('CMD certificate detection missing');
 }
 if (!bridge.includes('CITIZEN SIGNATURE KEY') || !bridge.includes('CITIZEN SIGNATURE CERTIFICATE')) {
   throw new Error('Citizen Card PKCS#11 key/certificate labels missing');
@@ -49,6 +55,8 @@ const bridgeJs = fs.readFileSync(new URL('src/lib/bridge.js', root), 'utf8');
 if (!bridgeJs.includes('savedByBridge')) throw new Error('WebApp save confirmation integration missing');
 const mainJs = fs.readFileSync(new URL('src/main.js', root), 'utf8');
 if (!mainJs.includes('bridgeCompatible') || !mainJs.includes('Bridge desatualizado')) throw new Error('Bridge version mismatch protection missing');
+if (!mainJs.includes('Chave Móvel Digital') || !mainJs.includes('currentSignMethod')) throw new Error('Dual signature method UI missing');
+if (!bridgeJs.includes('X-RJP-Sign-Method')) throw new Error('Signature method bridge header missing');
 
 const installer = fs.readFileSync(new URL('bridge/installer/RJP_Signer_Bridge.iss', root), 'utf8');
 if (!installer.includes('StopRunningBridge') || !installer.includes('taskkill.exe')) throw new Error('Installer old Bridge shutdown missing');

@@ -26,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.3.3";
+        private const string Version = "1.4.0";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -237,8 +237,8 @@ namespace RJP.Signer.Bridge
                         WriteJson(stream, 200, new
                         {
                             ok = true, name = "RJP Signer Bridge", version = Version,
-                            capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog" },
-                            compatibility = "Autodesk/OPC RSA-SHA1 via PKCS#11 Autenticação.gov", pairingRequired = true
+                            capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog", "citizen-card", "mobile-key", "windows-crypto" },
+                            compatibility = "Autodesk/OPC RSA-SHA1 via Windows cryptographic layer / Autenticação.gov", pairingRequired = true
                         }, origin); return;
                     }
                     if (req.Method == "POST" && req.Path == "/pair") { HandlePair(req, stream, origin); return; }
@@ -308,11 +308,12 @@ namespace RJP.Signer.Bridge
                     {
                         thumbprint = NormalizeThumbprint(cert.Thumbprint), subject = FriendlySubject(cert), issuer = cert.Issuer,
                         notBefore = cert.NotBefore.ToString("o"), notAfter = cert.NotAfter.ToString("o"), valid = valid,
-                        keyUsage = keyUsage.ToString(), recommended = recommended, citizenCard = LooksLikeCitizenCard(cert)
+                        keyUsage = keyUsage.ToString(), recommended = recommended, citizenCard = LooksLikeCitizenCard(cert), mobileKey = LooksLikeMobileKey(cert)
                     });
                 }
             }
-            return list.OrderByDescending(x => x.valid && x.citizenCard && x.recommended)
+            return list.OrderByDescending(x => x.valid && x.citizenCard && !x.mobileKey && x.recommended)
+                       .ThenByDescending(x => x.valid && x.mobileKey && x.recommended)
                        .ThenByDescending(x => x.valid && x.recommended)
                        .ThenByDescending(x => x.citizenCard)
                        .ThenBy(x => x.subject).ToArray();
@@ -323,7 +324,9 @@ namespace RJP.Signer.Bridge
             var thumbprint = NormalizeThumbprint(req.Header("X-RJP-Certificate"));
             var filename = SafeFileName(req.Header("X-RJP-Filename"));
             var mode = (req.Header("X-RJP-Sign-Mode") ?? "autodesk-compat").Trim();
+            var signMethod = (req.Header("X-RJP-Sign-Method") ?? "cc").Trim().ToLowerInvariant();
             if (!string.Equals(mode, "autodesk-compat", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Modo de assinatura não suportado nesta versão.");
+            if (signMethod != "cc" && signMethod != "cmd") throw new InvalidOperationException("Método de assinatura inválido. Usa cc ou cmd.");
             ValidateDwfxRequest(req);
             if (string.IsNullOrWhiteSpace(thumbprint)) throw new InvalidOperationException("Seleciona um certificado de assinatura.");
 
@@ -333,15 +336,18 @@ namespace RJP.Signer.Bridge
             {
                 if (!cert.HasPrivateKey) throw new InvalidOperationException("O certificado não tem uma chave privada acessível.");
                 if (DateTime.Now < cert.NotBefore || DateTime.Now > cert.NotAfter) throw new InvalidOperationException("O certificado está fora do período de validade.");
+                if (signMethod == "cmd" && !LooksLikeMobileKey(cert)) throw new InvalidOperationException("O certificado selecionado não foi identificado como Chave Móvel Digital registada no Windows.");
+                if (signMethod == "cc" && (!LooksLikeCitizenCard(cert) || LooksLikeMobileKey(cert))) throw new InvalidOperationException("Seleciona o certificado de assinatura do Cartão de Cidadão físico.");
                 using (var rsaPublic = cert.GetRSAPublicKey())
                 {
                     if (rsaPublic == null)
                         throw new NotSupportedException("Este certificado não é RSA. O modo Autodesk/Design Review legado exige RSA-SHA1. PDF/PAdES moderno não terá esta limitação.");
                 }
 
+                var methodLabel = signMethod == "cmd" ? "Chave Móvel Digital" : "Cartão de Cidadão";
                 var answer = MessageBox.Show(
-                    "Confirmas a assinatura digital deste ficheiro?\n\n" + filename + "\n\nCertificado:\n" + FriendlySubject(cert) +
-                    "\n\nModo: Compatibilidade Autodesk/Design Review\nMotor: PKCS#11 Autenticação.gov\n\nO PIN deve ser introduzido apenas na janela protegida do Cartão de Cidadão/token.",
+                    "Confirmas a assinatura digital deste ficheiro?\n\n" + filename + "\n\nMétodo: " + methodLabel + "\nCertificado:\n" + FriendlySubject(cert) +
+                    "\n\nModo: Compatibilidade Autodesk/Design Review\nMotor: camada criptográfica oficial do Windows / Autenticação.gov\n\nA autenticação/PIN é tratada pelo fornecedor criptográfico do método escolhido.",
                     "RJP Signer — Confirmar assinatura", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
                 if (answer != DialogResult.Yes) throw new OperationCanceledException("Assinatura cancelada pelo utilizador no Windows.");
 
@@ -359,7 +365,7 @@ namespace RJP.Signer.Bridge
                     int signedParts;
                     DateTime signedAt;
                     string signer;
-                    string pkcs11Module = ResolvePkcs11Module();
+                    string signingEngine = "Windows Crypto / " + (signMethod == "cmd" ? "Chave Móvel Digital" : "Cartão de Cidadão");
 
                     // Fase 1 — construir a infraestrutura OPC com um certificado temporário de software.
                     // Isto evita pedir ao Cartão de Cidadão uma assinatura RSA-SHA256 que depois seria descartada.
@@ -398,10 +404,11 @@ namespace RJP.Signer.Bridge
                             signatureXml = ReplaceSignatureMethod(signatureXml, LegacyRsaSha1SignatureMethod);
                             var canonicalSignedInfo = CanonicalizeSignedInfo(signatureXml);
 
-                            // Assina o SignedInfo canónico com o módulo oficial Autenticação.gov.
-                            var pkcs11Signature = SignRsaSha1WithCitizenCardPkcs11(cert, canonicalSignedInfo, pkcs11Module);
-                            VerifyRsaSha1Locally(cert, canonicalSignedInfo, pkcs11Signature);
-                            signatureXml = ReplaceSignatureValue(signatureXml, Convert.ToBase64String(pkcs11Signature));
+                            // Assina o SignedInfo canónico através da camada criptográfica nativa do Windows.
+                            // Para CC isto usa o minidriver/certificado registado pelo Autenticação.gov; para CMD usa o certificado CMD registado no Windows.
+                            var finalSignature = SignRsaSha1WithWindowsProvider(cert, canonicalSignedInfo, signMethod);
+                            VerifyRsaSha1Locally(cert, canonicalSignedInfo, finalSignature);
+                            signatureXml = ReplaceSignatureValue(signatureXml, Convert.ToBase64String(finalSignature));
                             WritePartText(created.SignaturePart, signatureXml);
 
                             var actualMethod = ReadSignatureMethod(created.SignaturePart);
@@ -439,8 +446,8 @@ namespace RJP.Signer.Bridge
                             File.WriteAllText(reportPath,
                                 "RJP Signer — diagnóstico de assinatura DWFx" + Environment.NewLine +
                                 "Versão Bridge: " + Version + Environment.NewLine +
-                                "Motor: PKCS#11 Autenticação.gov" + Environment.NewLine +
-                                "Módulo: " + pkcs11Module + Environment.NewLine +
+                                "Método: " + methodLabel + Environment.NewLine +
+                                "Motor: " + signingEngine + Environment.NewLine +
                                 "Ficheiro origem: " + filename + Environment.NewLine +
                                 "Resultado OPC: " + verifyResult + Environment.NewLine +
                                 "Assinaturas: " + signatureCount + Environment.NewLine +
@@ -450,7 +457,7 @@ namespace RJP.Signer.Bridge
                                 "Certificado: " + certStatus + Environment.NewLine +
                                 "IMPORTANTE: este ficheiro NÃO deve ser usado como documento assinado válido." + Environment.NewLine,
                                 Encoding.UTF8);
-                            Log("PKCS11: verificação final falhou: " + verifyResult + " | diagnóstico=" + diagnosticPath);
+                            Log(signingEngine + ": verificação final falhou: " + verifyResult + " | diagnóstico=" + diagnosticPath);
                             throw new CryptographicException(
                                 "A assinatura PKCS#11 foi criada mas a verificação OPC falhou: " + verifyResult +
                                 ". Foi guardada uma cópia de diagnóstico em: " + diagnosticPath + ".");
@@ -469,14 +476,14 @@ namespace RJP.Signer.Bridge
                         ["X-RJP-Verify-Result"] = Uri.EscapeDataString(verifyResult.ToString()),
                         ["X-RJP-Signed-Parts"] = signedParts.ToString(),
                         ["X-RJP-Signature-Count"] = signatureCount.ToString(),
-                        ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat via PKCS#11)"),
+                        ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat via Windows crypto · " + methodLabel + ")"),
                         ["X-RJP-Signed-At"] = Uri.EscapeDataString(signedAt.ToString("o")),
                         ["X-RJP-Certificate-Status"] = Uri.EscapeDataString(certStatus.ToString()),
                         ["X-RJP-Saved"] = "1",
                         ["X-RJP-Saved-Name"] = Uri.EscapeDataString(savedName)
                     };
                     WriteResponse(stream, 200, "application/octet-stream", signedBytes, origin, headers);
-                    Log("PKCS11: assinado e guardado: " + filename + " -> " + savePath + " | " + signer + " | partes=" + signedParts + " | OPC=" + verifyResult);
+                    Log(signingEngine + ": assinado e guardado: " + filename + " -> " + savePath + " | " + signer + " | partes=" + signedParts + " | OPC=" + verifyResult);
                 }
                 finally { try { File.Delete(temp); } catch { } }
             }
@@ -578,6 +585,29 @@ namespace RJP.Signer.Bridge
             {
                 canonical.CopyTo(ms);
                 return ms.ToArray();
+            }
+        }
+
+        private static byte[] SignRsaSha1WithWindowsProvider(X509Certificate2 cert, byte[] canonicalSignedInfo, string signMethod)
+        {
+            try
+            {
+                using (var rsa = cert.GetRSAPrivateKey())
+                {
+                    if (rsa == null) throw new CryptographicException("O certificado não disponibiliza uma chave privada RSA através da camada criptográfica do Windows.");
+                    var signature = rsa.SignData(canonicalSignedInfo, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
+                    if (signature == null || signature.Length == 0) throw new CryptographicException("O fornecedor criptográfico devolveu uma assinatura vazia.");
+                    VerifyRsaSha1Locally(cert, canonicalSignedInfo, signature);
+                    return signature;
+                }
+            }
+            catch (CryptographicException ex)
+            {
+                var method = signMethod == "cmd" ? "Chave Móvel Digital" : "Cartão de Cidadão";
+                var extra = signMethod == "cmd"
+                    ? " A CMD registada no Windows pode recusar RSA-SHA1, que é exigido apenas pelo DWFx Autodesk legado; nesse caso usa Cartão de Cidadão para DWFx."
+                    : " Confirma que o cartão está no leitor e que o certificado de assinatura está registado pelo Autenticação.gov.";
+                throw new CryptographicException("O fornecedor criptográfico do Windows não conseguiu assinar em RSA-SHA1 com " + method + "." + extra + " Detalhe: " + ex.Message, ex);
             }
         }
 
@@ -920,8 +950,14 @@ namespace RJP.Signer.Bridge
         private static bool IsSignatureInfrastructure(Uri uri) { return uri.OriginalString.StartsWith("/package/services/digital-signature/", StringComparison.OrdinalIgnoreCase); }
         private static bool IsRasterOverlayTiff(Uri uri) { var p = uri.OriginalString; return p.EndsWith(".tif", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".tiff", StringComparison.OrdinalIgnoreCase); }
         private static X509KeyUsageFlags GetKeyUsage(X509Certificate2 cert) { foreach (var ext in cert.Extensions) if (ext is X509KeyUsageExtension) return ((X509KeyUsageExtension)ext).KeyUsages; return X509KeyUsageFlags.None; }
+        private static bool LooksLikeMobileKey(X509Certificate2 cert)
+        {
+            var s = (cert.Subject + " " + cert.Issuer + " " + cert.FriendlyName).ToUpperInvariant();
+            return s.Contains("CHAVE MOVEL DIGITAL") || s.Contains("CHAVE MÓVEL DIGITAL") || s.Contains("DIGITAL MOBILE KEY") || s.Contains("MOBILE DIGITAL KEY") || s.Contains(" CMD ") || s.EndsWith(" CMD");
+        }
         private static bool LooksLikeCitizenCard(X509Certificate2 cert)
         {
+            if (LooksLikeMobileKey(cert)) return false;
             var s = (cert.Subject + " " + cert.Issuer + " " + cert.FriendlyName).ToUpperInvariant();
             return s.Contains("CARTAO") || s.Contains("CARTÃO") || s.Contains("CITIZEN") || s.Contains("ASSINATURA DIGITAL QUALIFICADA") || s.Contains("AUTENTICACAO.GOV") || s.Contains("AUTENTICAÇÃO.GOV");
         }
@@ -1029,7 +1065,7 @@ namespace RJP.Signer.Bridge
             sb.Append("Cache-Control: no-store\r\nConnection: close\r\n");
             if (!string.IsNullOrWhiteSpace(origin) && AllowedOrigins.Contains(origin)) sb.Append("Access-Control-Allow-Origin: ").Append(origin).Append("\r\n");
             sb.Append("Vary: Origin\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
-            sb.Append("Access-Control-Allow-Headers: Content-Type, X-RJP-Certificate, X-RJP-Filename, X-RJP-Token, X-RJP-Pair-Code, X-RJP-Sign-Mode\r\n");
+            sb.Append("Access-Control-Allow-Headers: Content-Type, X-RJP-Certificate, X-RJP-Filename, X-RJP-Token, X-RJP-Pair-Code, X-RJP-Sign-Mode, X-RJP-Sign-Method\r\n");
             sb.Append("Access-Control-Expose-Headers: X-RJP-Output-Name, X-RJP-Signer, X-RJP-Bridge-Version, X-RJP-Verify-Result, X-RJP-Signed-Parts, X-RJP-Signature-Count, X-RJP-Algorithm, X-RJP-Signed-At, X-RJP-Certificate-Status, X-RJP-Saved, X-RJP-Saved-Name\r\n");
             sb.Append("Access-Control-Allow-Private-Network: true\r\n");
             if (extra != null) foreach (var kv in extra) sb.Append(kv.Key).Append(": ").Append(kv.Value).Append("\r\n");
@@ -1050,6 +1086,7 @@ namespace RJP.Signer.Bridge
         public string keyUsage { get; set; }
         public bool recommended { get; set; }
         public bool citizenCard { get; set; }
+        public bool mobileKey { get; set; }
     }
 
     internal sealed class HttpRequest
