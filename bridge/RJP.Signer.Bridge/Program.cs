@@ -26,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.3.2";
+        private const string Version = "1.3.3";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -635,9 +635,7 @@ namespace RJP.Signer.Bridge
                         var tokenCert = FindCitizenSignatureCertificate(session);
                         if (tokenCert != null && !CertificatesMatch(tokenCert, cert))
                         {
-                            diagnostics.Add("O certificado de assinatura do token não corresponde ao certificado selecionado no Windows.");
-                            if (loggedIn) { try { session.Logout(); } catch { } }
-                            continue;
+                            diagnostics.Add("Aviso: o certificado final exposto pelo token não coincidiu com o selecionado no Windows; a chave será validada criptograficamente após C_Sign.");
                         }
 
                         try
@@ -687,15 +685,22 @@ namespace RJP.Signer.Bridge
 
             var detail = diagnostics.Count == 0 ? "" : "\n\nDiagnóstico PKCS#11:\n" + string.Join("\n", diagnostics);
             throw new InvalidOperationException(
-                "Não foi localizada no Cartão de Cidadão/token PKCS#11 a chave RSA de assinatura com o label oficial 'CITIZEN SIGNATURE CERTIFICATE'." + detail);
+                "Não foi localizada no Cartão de Cidadão/token PKCS#11 a chave privada de assinatura 'CITIZEN SIGNATURE KEY'." + detail);
         }
 
         private static IObjectHandle FindCitizenSignaturePrivateKey(ISession session)
         {
+            // No middleware Autenticação.gov atual, a chave privada de assinatura é exposta
+            // como "CITIZEN SIGNATURE KEY". Não filtramos CKA_KEY_TYPE na pesquisa inicial,
+            // porque algumas versões do PKCS#11 não aceitam esse atributo no template de busca
+            // apesar de a chave ser RSA. O mecanismo CKM_SHA1_RSA_PKCS e a verificação local
+            // com a chave pública do certificado garantem que só uma chave RSA correta é aceite.
             var exactLabels = new[]
             {
-                "CITIZEN SIGNATURE CERTIFICATE",
                 "CITIZEN SIGNATURE KEY",
+                // Compatibilidade com middleware/versões antigas que possam usar este label.
+                "CITIZEN SIGNATURE CERTIFICATE",
+                "CARTAO DE CIDADAO:CITIZEN SIGNATURE KEY",
                 "CARTAO DE CIDADAO:CITIZEN SIGNATURE CERTIFICATE"
             };
 
@@ -704,19 +709,17 @@ namespace RJP.Signer.Bridge
                 var template = new List<IObjectAttribute>
                 {
                     session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_PRIVATE_KEY),
-                    session.Factories.ObjectAttributeFactory.Create(CKA.CKA_KEY_TYPE, CKK.CKK_RSA),
                     session.Factories.ObjectAttributeFactory.Create(CKA.CKA_LABEL, label)
                 };
                 var found = session.FindAllObjects(template).FirstOrDefault();
                 if (found != null) return found;
             }
 
-            // Fallback: enumera apenas chaves RSA privadas e escolhe explicitamente uma
-            // que contenha SIGNATURE no label, nunca AUTHENTICATION.
+            // Fallback: enumera todas as chaves privadas e escolhe uma de assinatura,
+            // recusando explicitamente a chave de autenticação.
             var allTemplate = new List<IObjectAttribute>
             {
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_PRIVATE_KEY),
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_KEY_TYPE, CKK.CKK_RSA)
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_PRIVATE_KEY)
             };
             foreach (var handle in session.FindAllObjects(allTemplate))
             {
@@ -727,27 +730,56 @@ namespace RJP.Signer.Bridge
             return null;
         }
 
+        private static X509Certificate2 ReadPkcs11Certificate(ISession session, IObjectHandle handle)
+        {
+            try
+            {
+                var attrs = session.GetAttributeValue(handle, new List<CKA> { CKA.CKA_VALUE });
+                if (attrs.Count == 0 || attrs[0].CannotBeRead) return null;
+                var raw = attrs[0].GetValueAsByteArray();
+                if (raw == null || raw.Length == 0) return null;
+                return new X509Certificate2(raw);
+            }
+            catch { return null; }
+        }
+
         private static X509Certificate2 FindCitizenSignatureCertificate(ISession session)
         {
+            // Primeiro, exige o certificado de assinatura do cidadão pelo label exato.
+            // Isto evita confundir "SIGNATURE SUB CA" com o certificado final do titular.
+            var exactLabels = new[]
+            {
+                "CITIZEN SIGNATURE CERTIFICATE",
+                "CARTAO DE CIDADAO:CITIZEN SIGNATURE CERTIFICATE"
+            };
+            foreach (var label in exactLabels)
+            {
+                var exact = new List<IObjectAttribute>
+                {
+                    session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_CERTIFICATE),
+                    session.Factories.ObjectAttributeFactory.Create(CKA.CKA_LABEL, label)
+                };
+                var handle = session.FindAllObjects(exact).FirstOrDefault();
+                if (handle != null)
+                {
+                    var cert = ReadPkcs11Certificate(session, handle);
+                    if (cert != null) return cert;
+                }
+            }
+
+            // Fallback muito restrito: tem de ser CITIZEN + SIGNATURE e nunca SUB CA/ROOT/AUTH.
             var template = new List<IObjectAttribute>
             {
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_CERTIFICATE),
-                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CERTIFICATE_TYPE, CKC.CKC_X_509)
+                session.Factories.ObjectAttributeFactory.Create(CKA.CKA_CLASS, CKO.CKO_CERTIFICATE)
             };
             foreach (var handle in session.FindAllObjects(template))
             {
-                try
-                {
-                    var label = ReadPkcs11Label(session, handle);
-                    var upper = (label ?? "").ToUpperInvariant();
-                    if (!upper.Contains("SIGNATURE") || upper.Contains("AUTHENTICATION")) continue;
-                    var attrs = session.GetAttributeValue(handle, new List<CKA> { CKA.CKA_VALUE });
-                    if (attrs.Count == 0 || attrs[0].CannotBeRead) continue;
-                    var raw = attrs[0].GetValueAsByteArray();
-                    if (raw == null || raw.Length == 0) continue;
-                    return new X509Certificate2(raw);
-                }
-                catch { }
+                var label = ReadPkcs11Label(session, handle);
+                var upper = (label ?? "").ToUpperInvariant();
+                if (!upper.Contains("CITIZEN") || !upper.Contains("SIGNATURE")) continue;
+                if (upper.Contains("AUTHENTICATION") || upper.Contains("SUB CA") || upper.Contains("ROOT")) continue;
+                var cert = ReadPkcs11Certificate(session, handle);
+                if (cert != null) return cert;
             }
             return null;
         }

@@ -33,6 +33,12 @@ if (!bridge.includes('BuildDiagnosticSavePath') || !bridge.includes('_ASSINADO_I
 if (!bridge.includes('SignRsaSha1WithCitizenCardPkcs11') || !bridge.includes('CKM.CKM_SHA1_RSA_PKCS') || !bridge.includes('pteidpkcs11.dll')) {
   throw new Error('PKCS#11 RSA-SHA1 engine missing');
 }
+if (!bridge.includes('CITIZEN SIGNATURE KEY') || !bridge.includes('CITIZEN SIGNATURE CERTIFICATE')) {
+  throw new Error('Citizen Card PKCS#11 key/certificate labels missing');
+}
+if (!bridge.includes('upper.Contains("SUB CA")')) {
+  throw new Error('PKCS#11 SUB CA exclusion missing');
+}
 if (!bridge.includes('ReplaceEmbeddedCertificate') || !bridge.includes('CanonicalizeSignedInfo') || !bridge.includes('ReplaceSignatureValue')) {
   throw new Error('OPC XMLDSIG patch pipeline missing');
 }

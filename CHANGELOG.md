@@ -1,12 +1,13 @@
-# RJP Signer V1.3.2
+# RJP Signer V1.3.3
 
-## Correção PKCS#11 — Cartão de Cidadão
+## PKCS#11 — chave e certificado corretamente separados
 
-- A chave privada já não é localizada através de `CKA_ID`.
-- Usa primeiro o label oficial documentado pelo Autenticação.gov: `CITIZEN SIGNATURE CERTIFICATE`.
-- Fallback seguro para objetos RSA privados cujo label contenha `SIGNATURE` e não `AUTHENTICATION`.
-- Valida o certificado do token contra o certificado escolhido no Windows quando este está disponível.
-- A assinatura devolvida pelo token é sempre validada localmente com a chave pública do certificado selecionado.
-- O login/PIN é delegado ao `pteidpkcs11.dll`; o RJP Signer não recolhe nem armazena PIN.
-- Se a chave não for encontrada, a mensagem inclui diagnóstico dos labels PKCS#11 visíveis.
-- Bridge/WebApp/Installer sincronizados em V1.3.2.
+- Corrigida a pesquisa da chave privada: `CITIZEN SIGNATURE KEY`.
+- Removido `CKA_KEY_TYPE` do template inicial de pesquisa para evitar incompatibilidades de filtragem do middleware.
+- Mantido fallback apenas para chaves privadas com `SIGNATURE` e nunca `AUTHENTICATION`.
+- O certificado do titular é procurado primeiro por `CITIZEN SIGNATURE CERTIFICATE`.
+- `SIGNATURE SUB CA`, `ROOT` e certificados de autenticação são excluídos do fallback.
+- Uma eventual diferença entre certificado exposto pelo token e certificado Windows deixa de bloquear prematuramente; a correspondência é confirmada pela verificação criptográfica da assinatura após `C_Sign`.
+- Mantido `CKM_SHA1_RSA_PKCS` exclusivamente no modo de compatibilidade Autodesk/Design Review.
+- Mantidos Guardar Como obrigatório, diagnóstico `_ASSINADO_INVALIDO.dwfx`, emparelhamento e bloqueio de versões incompatíveis do Bridge.
+- Bridge/WebApp/Installer sincronizados em V1.3.3.

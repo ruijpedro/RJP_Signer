@@ -1,4 +1,4 @@
-# RJP Signer Bridge V1.3.2
+# RJP Signer Bridge V1.3.3
 
 Bridge local Windows do RJP Signer.
 
@@ -14,7 +14,7 @@ A V1.3 prepara a estrutura OPC e os hashes SHA-1, canonicaliza o `SignedInfo` em
 
 ## Instalação
 
-Compila no GitHub em `Build RJP Signer Windows Installer`, descarrega `RJP-Signer-Bridge-Setup-V1.3.2` e instala. Confirma depois na WebApp que aparece `Bridge ligado · V1.3.2`.
+Compila no GitHub em `Build RJP Signer Windows Installer`, descarrega `RJP-Signer-Bridge-Setup-V1.3.3` e instala. Confirma depois na WebApp que aparece `Bridge ligado · V1.3.3`.
 
 ## Segurança
 
