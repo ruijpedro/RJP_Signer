@@ -1,6 +1,6 @@
 #define MyAppName "RJP Signer Bridge"
 #ifndef MyAppVersion
-#define MyAppVersion "1.4.1"
+#define MyAppVersion "1.4.3"
 #endif
 #define MyAppPublisher "RJP"
 #define MyAppExeName "RJP.Signer.Bridge.exe"

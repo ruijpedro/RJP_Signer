@@ -1,7 +1,7 @@
 {
   "name": "rjp-signer",
   "private": true,
-  "version": "1.4.1",
+  "version": "1.4.3",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -10,7 +10,8 @@
     "test": "node tests/smoke.mjs",
     "android:add": "cap add android",
     "android:sync": "cap sync android",
-    "android:open": "cap open android"
+    "android:open": "cap open android",
+    "windows:app": "npm run build && electron-builder --win nsis --x64"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
@@ -19,6 +20,50 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.3",
-    "vite": "^7.1.3"
+    "vite": "^7.1.3",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "main": "desktop/main.cjs",
+  "build": {
+    "appId": "pt.rjp.signer.windows",
+    "productName": "RJP Signer",
+    "directories": {
+      "output": "release-windows"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bridge/RJP.Signer.Bridge/bin/Release",
+        "to": "bridge",
+        "filter": [
+          "RJP.Signer.Bridge.exe",
+          "RJP.Signer.Bridge.exe.config",
+          "Pkcs11Interop.dll"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "RJP_Signer_Windows_Setup_${version}_${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "RJP Signer"
+    }
   }
 }

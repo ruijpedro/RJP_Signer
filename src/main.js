@@ -5,7 +5,7 @@ import { inspectDwfx } from './lib/dwfx.js';
 import { inspectPdf } from './lib/pdf.js';
 import { bridgeHealth, bridgePair, bridgeCertificates, bridgeVerifyDwfx, bridgeSignDwfx } from './lib/bridge.js';
 
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.3';
 
 const TOKEN_KEY = 'rjp-signer-bridge-token-v1';
 const HISTORY_KEY = 'rjp-signer-history-v1';
@@ -26,7 +26,7 @@ app.innerHTML = `
     </section>
 
     <section class="hero">
-      <span class="eyebrow">V1.4.1 · CARTÃO DE CIDADÃO + CHAVE MÓVEL DIGITAL</span>
+      <span class="eyebrow">V1.4.3 · CARTÃO DE CIDADÃO + CHAVE MÓVEL DIGITAL</span>
       <h1>Assinar. Verificar. Preservar.</h1>
       <p>Escolhe Cartão de Cidadão ou Chave Móvel Digital. No Cartão físico, o PIN de assinatura é pedido numa janela local do Bridge e enviado apenas ao módulo oficial Autenticação.gov.</p>
     </section>
@@ -46,7 +46,7 @@ app.innerHTML = `
     <section id="list" class="list"><div class="empty">Ainda não existem documentos adicionados.</div></section>
 
     <section class="notice good"><strong>DWFx</strong><span>Assinatura real no modo <b>Compatibilidade Autodesk/Design Review</b>. Podes escolher <b>Cartão de Cidadão</b> ou <b>Chave Móvel Digital</b> quando o respetivo certificado estiver registado no Windows.</span></section>
-    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. A arquitetura V1.4.1 fica preparada para os dois métodos também nestes formatos; os motores DWF clássico e PAdES/PDF-A continuam desativados até validação.</span></section>
+    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. A arquitetura V1.4.3 fica preparada para os dois métodos também nestes formatos; os motores DWF clássico e PAdES/PDF-A continuam desativados até validação.</span></section>
 
     <section class="historybox">
       <div class="sectionhead"><div><h2>Histórico local</h2><p>Guarda apenas metadados, nunca os documentos nem o PIN.</p></div><button id="clearHistory">Limpar histórico</button></div>
@@ -75,7 +75,7 @@ app.innerHTML = `
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.4.1 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.4.3 · DWF / DWFx / PDF / PDF-A</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');
@@ -254,6 +254,10 @@ async function openSignDialog() {
   $('#modalText').textContent = `${eligible.length} DWFx pronto(s). O Windows abrirá “Guardar como” antes da autenticação. Escolhe Cartão de Cidadão ou Chave Móvel Digital.`;
   updateMethodUI();
   signModal.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    signModal.querySelector('.modalbox')?.scrollTo({ top: 0, behavior: 'auto' });
+    confirmSign.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  });
 }
 
 function currentSignMethod() {

@@ -1,4 +1,4 @@
-# RJP Signer V1.4.1
+# RJP Signer V1.4.3
 
 ## Dois métodos de assinatura
 
@@ -22,5 +22,13 @@ A interface continua preparada para os dois métodos, mas nesta versão os motor
 
 1. Carrega o projeto completo no GitHub.
 2. Executa `Actions → Build RJP Signer Windows Installer`.
-3. Instala o artifact `RJP-Signer-Bridge-Setup-V1.4.1`.
-4. Confirma na WebApp `Bridge ligado · V1.4.1`.
+3. Instala o artifact `RJP-Signer-Bridge-Setup-V1.4.3`.
+4. Confirma na WebApp `Bridge ligado · V1.4.3`.
+
+## Aplicação Windows
+A V1.4.3 adiciona uma aplicação Windows desktop além da WebApp/APK/Bridge.
+No GitHub Actions execute **Build RJP Signer Windows App**. O artifact contém:
+- `RJP_Signer_Windows_Setup_<versão>_x64.exe` — instalador Windows.
+- `RJP_Signer_Windows_Portable_<versão>_x64.zip` — versão portátil.
+
+A aplicação desktop inclui o Bridge nos recursos e tenta iniciá-lo automaticamente se a porta local do Bridge ainda não estiver ativa. O emparelhamento de 6 dígitos mantém-se na primeira utilização.

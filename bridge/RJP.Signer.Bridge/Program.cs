@@ -26,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.4.1";
+        private const string Version = "1.4.3";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -35,6 +35,8 @@ namespace RJP.Signer.Bridge
             "https://ruijpedro.github.io",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://127.0.0.1:17342",
+            "http://localhost:17342",
             "http://localhost",
             "https://localhost",
             "capacitor://localhost"
@@ -387,7 +389,7 @@ namespace RJP.Signer.Bridge
                         using (var placeholderCert = request.CreateSelfSigned(DateTimeOffset.Now.AddMinutes(-5), DateTimeOffset.Now.AddDays(1)))
                         {
                             var manager = new PackageDigitalSignatureManager(package);
-                            if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.4.1 não altera documentos DWFx já assinados.");
+                            if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.4.3 não altera documentos DWFx já assinados.");
                             manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
                             manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
                             manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";

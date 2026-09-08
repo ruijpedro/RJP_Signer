@@ -4,8 +4,8 @@ const root = new URL('../', import.meta.url);
 const must = [
   'package.json','capacitor.config.json','index.html','src/main.js','src/lib/dwfx.js','src/lib/pdf.js','src/lib/bridge.js',
   '.github/workflows/build-webapp.yml','.github/workflows/build-android.yml',
-  '.github/workflows/build-bridge-windows.yml','.github/workflows/build-windows-installer.yml',
-  'bridge/RJP.Signer.Bridge/Program.cs','bridge/installer/RJP_Signer_Bridge.iss'
+  '.github/workflows/build-bridge-windows.yml','.github/workflows/build-windows-installer.yml','.github/workflows/build-windows-app.yml',
+  'bridge/RJP.Signer.Bridge/Program.cs','bridge/installer/RJP_Signer_Bridge.iss','desktop/main.cjs'
 ];
 
 for (const p of must) {
@@ -72,10 +72,17 @@ for (const wf of [
   '.github/workflows/build-webapp.yml',
   '.github/workflows/build-android.yml',
   '.github/workflows/build-bridge-windows.yml',
-  '.github/workflows/build-windows-installer.yml'
+  '.github/workflows/build-windows-installer.yml',
+  '.github/workflows/build-windows-app.yml'
 ]) {
   const content = fs.readFileSync(new URL(wf, root), 'utf8');
   if (/Cavadas Manager/i.test(content)) throw new Error('Unexpected Cavadas Manager reference in ' + wf);
 }
+
+
+const desktopMain = fs.readFileSync(new URL('desktop/main.cjs', root), 'utf8');
+if (!desktopMain.includes('17342') || !desktopMain.includes('RJP.Signer.Bridge.exe')) throw new Error('Windows desktop wrapper/Bridge bootstrap missing');
+if (!pkg.devDependencies?.electron || !pkg.devDependencies?.['electron-builder']) throw new Error('Electron desktop build dependencies missing');
+if (!bridge.includes('http://127.0.0.1:17342')) throw new Error('Windows desktop origin missing from Bridge CORS allowlist');
 
 console.log(`RJP Signer V${pkg.version} smoke test OK`);

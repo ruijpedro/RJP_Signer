@@ -1,8 +1,9 @@
-RJP Signer V1.4.1 — Manifesto de ficheiros
+RJP Signer V1.4.3 — Manifesto de ficheiros
 
 .github/workflows/build-android.yml
 .github/workflows/build-bridge-windows.yml
 .github/workflows/build-webapp.yml
+.github/workflows/build-windows-app.yml
 .github/workflows/build-windows-installer.yml
 .gitignore
 CHANGELOG.md
@@ -15,6 +16,7 @@ bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj
 bridge/START_BRIDGE.bat
 bridge/installer/RJP_Signer_Bridge.iss
 capacitor.config.json
+desktop/main.cjs
 index.html
 package.json
 src/lib/bridge.js
