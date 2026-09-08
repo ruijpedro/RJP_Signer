@@ -34,7 +34,10 @@ if (!bridge.includes('SignRsaSha1WithWindowsProvider') || !bridge.includes('Hash
   throw new Error('Windows RSA-SHA1 signing engine missing');
 }
 if (!bridge.includes('SignRsaSha1WithCitizenCardPkcs11') || !bridge.includes('CKM.CKM_SHA1_RSA_PKCS') || !bridge.includes('pteidpkcs11.dll')) {
-  throw new Error('PKCS#11 diagnostic compatibility engine missing');
+  throw new Error('PKCS#11 Citizen Card signing engine missing');
+}
+if (!bridge.includes('PromptForCitizenCardSignaturePin') || !bridge.includes('CKR.CKR_PIN_INCORRECT') || !bridge.includes('CitizenCardPinDialog')) {
+  throw new Error('Citizen Card local PIN flow missing');
 }
 if (!bridge.includes('LooksLikeMobileKey') || !bridge.includes('mobileKey')) {
   throw new Error('CMD certificate detection missing');

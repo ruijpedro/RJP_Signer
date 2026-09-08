@@ -5,7 +5,7 @@ import { inspectDwfx } from './lib/dwfx.js';
 import { inspectPdf } from './lib/pdf.js';
 import { bridgeHealth, bridgePair, bridgeCertificates, bridgeVerifyDwfx, bridgeSignDwfx } from './lib/bridge.js';
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 
 const TOKEN_KEY = 'rjp-signer-bridge-token-v1';
 const HISTORY_KEY = 'rjp-signer-history-v1';
@@ -26,9 +26,9 @@ app.innerHTML = `
     </section>
 
     <section class="hero">
-      <span class="eyebrow">V1.4 · CARTÃO DE CIDADÃO + CHAVE MÓVEL DIGITAL</span>
+      <span class="eyebrow">V1.4.1 · CARTÃO DE CIDADÃO + CHAVE MÓVEL DIGITAL</span>
       <h1>Assinar. Verificar. Preservar.</h1>
-      <p>Escolhe Cartão de Cidadão ou Chave Móvel Digital. O Bridge usa a camada criptográfica oficial do Windows/Autenticação.gov.</p>
+      <p>Escolhe Cartão de Cidadão ou Chave Móvel Digital. No Cartão físico, o PIN de assinatura é pedido numa janela local do Bridge e enviado apenas ao módulo oficial Autenticação.gov.</p>
     </section>
 
     <section id="drop" class="drop">
@@ -46,7 +46,7 @@ app.innerHTML = `
     <section id="list" class="list"><div class="empty">Ainda não existem documentos adicionados.</div></section>
 
     <section class="notice good"><strong>DWFx</strong><span>Assinatura real no modo <b>Compatibilidade Autodesk/Design Review</b>. Podes escolher <b>Cartão de Cidadão</b> ou <b>Chave Móvel Digital</b> quando o respetivo certificado estiver registado no Windows.</span></section>
-    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. A arquitetura V1.4 fica preparada para os dois métodos também nestes formatos; os motores DWF clássico e PAdES/PDF-A continuam desativados até validação.</span></section>
+    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. A arquitetura V1.4.1 fica preparada para os dois métodos também nestes formatos; os motores DWF clássico e PAdES/PDF-A continuam desativados até validação.</span></section>
 
     <section class="historybox">
       <div class="sectionhead"><div><h2>Histórico local</h2><p>Guarda apenas metadados, nunca os documentos nem o PIN.</p></div><button id="clearHistory">Limpar histórico</button></div>
@@ -65,17 +65,17 @@ app.innerHTML = `
     <button data-close="sign" class="x">×</button><h2>Assinar DWFx</h2>
     <p id="modalText">Escolhe o método de assinatura. O Bridge abrirá sempre a janela do Windows <b>Guardar como</b> com o nome *_ASSINADO.dwfx antes da autenticação.</p>
     <div class="methodpicker" role="radiogroup" aria-label="Método de assinatura">
-      <label class="methodcard"><input type="radio" name="signMethod" value="cc" checked><span><b>Cartão de Cidadão</b><small>Cartão físico + PIN de assinatura</small></span></label>
+      <label class="methodcard"><input type="radio" name="signMethod" value="cc" checked><span><b>Cartão de Cidadão</b><small>Cartão físico + PIN de assinatura via PKCS#11</small></span></label>
       <label class="methodcard"><input type="radio" name="signMethod" value="cmd"><span><b>Chave Móvel Digital</b><small>Certificado CMD registado no Windows</small></span></label>
     </div>
     <div id="methodHelp" class="methodhelp"></div>
     <label>Certificado<select id="certSelect"></select></label><div id="certHelp" class="certhelp"></div>
-    <div class="compatnote"><b>DWFx:</b> Compatibilidade Autodesk/Design Review exige XMLDSIG/OPC RSA-SHA1. O Bridge tenta a assinatura através do fornecedor criptográfico oficial do Windows; se a CMD não aceitar RSA-SHA1, usa Cartão de Cidadão para DWFx.</div>
+    <div class="compatnote"><b>DWFx:</b> Compatibilidade Autodesk/Design Review exige XMLDSIG/OPC RSA-SHA1. No Cartão de Cidadão, o Bridge usa PKCS#11 direto com CKM_SHA1_RSA_PKCS. Na CMD, o fornecedor Windows pode recusar RSA-SHA1; nesse caso a CMD não pode ser usada para DWFx legado, embora continue prevista para PDF/PAdES.</div>
     <div class="modalactions"><button data-close="sign">Cancelar</button><button id="confirmSign" class="primary">Assinar e guardar…</button></div>
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.4.0 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.4.1 · DWF / DWFx / PDF / PDF-A</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');
@@ -285,7 +285,7 @@ function updateMethodUI() {
       : '<b>CMD ainda não registada no Windows.</b> Na aplicação Autenticação.gov abre <i>Configuração de assinaturas → Chave Móvel Digital → Registar</i> e depois carrega em Atualizar no RJP Signer.';
   } else {
     methodHelp.innerHTML = usable.length
-      ? '<b>Cartão de Cidadão:</b> usa o certificado de assinatura do cartão físico e a camada criptográfica do Windows/Autenticação.gov.'
+      ? '<b>Cartão de Cidadão:</b> o Bridge pede localmente o PIN de assinatura e usa diretamente o módulo oficial pteidpkcs11.dll. O PIN nunca passa pela WebApp e não é guardado.'
       : '<b>Cartão de Cidadão não detetado.</b> Insere o cartão no leitor, aguarda o registo do certificado e carrega em Atualizar.';
   }
   confirmSign.disabled = !usable.length;

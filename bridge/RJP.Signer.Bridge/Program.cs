@@ -26,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.4.0";
+        private const string Version = "1.4.1";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -237,8 +237,8 @@ namespace RJP.Signer.Bridge
                         WriteJson(stream, 200, new
                         {
                             ok = true, name = "RJP Signer Bridge", version = Version,
-                            capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog", "citizen-card", "mobile-key", "windows-crypto" },
-                            compatibility = "Autodesk/OPC RSA-SHA1 via Windows cryptographic layer / Autenticação.gov", pairingRequired = true
+                            capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog", "citizen-card", "mobile-key", "windows-crypto", "cc-pkcs11-pin" },
+                            compatibility = "Autodesk/OPC RSA-SHA1: Cartão de Cidadão via PKCS#11 + PIN local; CMD via Windows crypto quando suportado", pairingRequired = true
                         }, origin); return;
                     }
                     if (req.Method == "POST" && req.Path == "/pair") { HandlePair(req, stream, origin); return; }
@@ -345,9 +345,15 @@ namespace RJP.Signer.Bridge
                 }
 
                 var methodLabel = signMethod == "cmd" ? "Chave Móvel Digital" : "Cartão de Cidadão";
+                var methodEngineLabel = signMethod == "cmd"
+                    ? "Windows Crypto / certificado CMD registado"
+                    : "PKCS#11 Autenticação.gov / pteidpkcs11.dll";
+                var authLabel = signMethod == "cmd"
+                    ? "A autenticação é tratada pelo fornecedor CMD registado no Windows."
+                    : "O PIN de assinatura será pedido numa janela local do Bridge e não é guardado.";
                 var answer = MessageBox.Show(
                     "Confirmas a assinatura digital deste ficheiro?\n\n" + filename + "\n\nMétodo: " + methodLabel + "\nCertificado:\n" + FriendlySubject(cert) +
-                    "\n\nModo: Compatibilidade Autodesk/Design Review\nMotor: camada criptográfica oficial do Windows / Autenticação.gov\n\nA autenticação/PIN é tratada pelo fornecedor criptográfico do método escolhido.",
+                    "\n\nModo: Compatibilidade Autodesk/Design Review\nMotor: " + methodEngineLabel + "\n\n" + authLabel,
                     "RJP Signer — Confirmar assinatura", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
                 if (answer != DialogResult.Yes) throw new OperationCanceledException("Assinatura cancelada pelo utilizador no Windows.");
 
@@ -365,7 +371,7 @@ namespace RJP.Signer.Bridge
                     int signedParts;
                     DateTime signedAt;
                     string signer;
-                    string signingEngine = "Windows Crypto / " + (signMethod == "cmd" ? "Chave Móvel Digital" : "Cartão de Cidadão");
+                    string signingEngine = signMethod == "cmd" ? "Windows Crypto / Chave Móvel Digital" : "PKCS#11 Autenticação.gov / Cartão de Cidadão";
 
                     // Fase 1 — construir a infraestrutura OPC com um certificado temporário de software.
                     // Isto evita pedir ao Cartão de Cidadão uma assinatura RSA-SHA256 que depois seria descartada.
@@ -381,7 +387,7 @@ namespace RJP.Signer.Bridge
                         using (var placeholderCert = request.CreateSelfSigned(DateTimeOffset.Now.AddMinutes(-5), DateTimeOffset.Now.AddDays(1)))
                         {
                             var manager = new PackageDigitalSignatureManager(package);
-                            if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.3 não altera documentos DWFx já assinados.");
+                            if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.4.1 não altera documentos DWFx já assinados.");
                             manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
                             manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
                             manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";
@@ -404,9 +410,19 @@ namespace RJP.Signer.Bridge
                             signatureXml = ReplaceSignatureMethod(signatureXml, LegacyRsaSha1SignatureMethod);
                             var canonicalSignedInfo = CanonicalizeSignedInfo(signatureXml);
 
-                            // Assina o SignedInfo canónico através da camada criptográfica nativa do Windows.
-                            // Para CC isto usa o minidriver/certificado registado pelo Autenticação.gov; para CMD usa o certificado CMD registado no Windows.
-                            var finalSignature = SignRsaSha1WithWindowsProvider(cert, canonicalSignedInfo, signMethod);
+                            // Motor separado por método:
+                            // - Cartão de Cidadão: PKCS#11 oficial (pteidpkcs11.dll) com PIN de assinatura pedido localmente pelo Bridge.
+                            // - CMD: fornecedor criptográfico registado no Windows; pode recusar RSA-SHA1 por ser legado.
+                            byte[] finalSignature;
+                            if (signMethod == "cc")
+                            {
+                                var modulePath = ResolvePkcs11Module();
+                                finalSignature = SignRsaSha1WithCitizenCardPkcs11(cert, canonicalSignedInfo, modulePath);
+                            }
+                            else
+                            {
+                                finalSignature = SignRsaSha1WithWindowsProvider(cert, canonicalSignedInfo, signMethod);
+                            }
                             VerifyRsaSha1Locally(cert, canonicalSignedInfo, finalSignature);
                             signatureXml = ReplaceSignatureValue(signatureXml, Convert.ToBase64String(finalSignature));
                             WritePartText(created.SignaturePart, signatureXml);
@@ -459,7 +475,7 @@ namespace RJP.Signer.Bridge
                                 Encoding.UTF8);
                             Log(signingEngine + ": verificação final falhou: " + verifyResult + " | diagnóstico=" + diagnosticPath);
                             throw new CryptographicException(
-                                "A assinatura PKCS#11 foi criada mas a verificação OPC falhou: " + verifyResult +
+                                "A assinatura foi criada por " + signingEngine + " mas a verificação OPC falhou: " + verifyResult +
                                 ". Foi guardada uma cópia de diagnóstico em: " + diagnosticPath + ".");
                         }
                     }
@@ -476,7 +492,7 @@ namespace RJP.Signer.Bridge
                         ["X-RJP-Verify-Result"] = Uri.EscapeDataString(verifyResult.ToString()),
                         ["X-RJP-Signed-Parts"] = signedParts.ToString(),
                         ["X-RJP-Signature-Count"] = signatureCount.ToString(),
-                        ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat via Windows crypto · " + methodLabel + ")"),
+                        ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat · " + signingEngine + ")"),
                         ["X-RJP-Signed-At"] = Uri.EscapeDataString(signedAt.ToString("o")),
                         ["X-RJP-Certificate-Status"] = Uri.EscapeDataString(certStatus.ToString()),
                         ["X-RJP-Saved"] = "1",
@@ -618,7 +634,8 @@ namespace RJP.Signer.Bridge
             using (var library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, modulePath, AppType.MultiThreaded))
             {
                 var slots = library.GetSlotList(SlotsType.WithTokenPresent);
-                if (slots == null || slots.Count == 0) throw new InvalidOperationException("Nenhum Cartão de Cidadão/token PKCS#11 foi detetado.");
+                if (slots == null || slots.Count == 0)
+                    throw new InvalidOperationException("Nenhum Cartão de Cidadão/token PKCS#11 foi detetado.");
 
                 foreach (var slot in slots)
                 {
@@ -629,47 +646,47 @@ namespace RJP.Signer.Bridge
                         diagnostics.Add("Token: " + (string.IsNullOrWhiteSpace(tokenLabel) ? "(sem label)" : tokenLabel) +
                             " | objetos: " + DescribePkcs11SigningObjects(session));
 
-                        // O middleware oficial documenta o alias da chave de assinatura como
-                        // "CITIZEN SIGNATURE CERTIFICATE". Não dependemos de CKA_ID, que pode
-                        // estar vazio/não exposto por alguns cartões ou versões do middleware.
                         var privateKey = FindCitizenSignaturePrivateKey(session);
+                        if (privateKey == null) continue;
 
-                        // Alguns tokens só expõem objetos privados após login. Neste caso tentamos
-                        // o login com PIN nulo: o pteidpkcs11 é responsável pela sua própria janela
-                        // protegida de PIN; o RJP Signer nunca lê nem armazena o PIN.
-                        var loggedIn = false;
-                        if (privateKey == null && tokenInfo.TokenFlags.LoginRequired)
-                        {
-                            try
-                            {
-                                session.Login(CKU.CKU_USER, (byte[])null);
-                                loggedIn = true;
-                            }
-                            catch (Pkcs11Exception ex)
-                            {
-                                if (ex.RV != CKR.CKR_USER_ALREADY_LOGGED_IN)
-                                    diagnostics.Add("Login PKCS#11: " + ex.RV);
-                            }
-                            privateKey = FindCitizenSignaturePrivateKey(session);
-                        }
-
-                        if (privateKey == null)
-                        {
-                            if (loggedIn) { try { session.Logout(); } catch { } }
-                            continue;
-                        }
-
-                        // Quando o certificado de assinatura está exposto no token, confirma que
-                        // corresponde ao certificado escolhido na WebApp. Se não estiver exposto,
-                        // a validação criptográfica local abaixo continua a impedir uma chave errada.
                         var tokenCert = FindCitizenSignatureCertificate(session);
                         if (tokenCert != null && !CertificatesMatch(tokenCert, cert))
-                        {
-                            diagnostics.Add("Aviso: o certificado final exposto pelo token não coincidiu com o selecionado no Windows; a chave será validada criptograficamente após C_Sign.");
-                        }
+                            diagnostics.Add("Aviso: certificado do token diferente do certificado Windows; será feita validação criptográfica após C_Sign.");
 
+                        byte[] pinBytes = null;
+                        var loggedIn = false;
                         try
                         {
+                            pinBytes = PromptForCitizenCardSignaturePin(tokenLabel);
+                            try
+                            {
+                                session.Login(CKU.CKU_USER, pinBytes);
+                                loggedIn = true;
+                            }
+                            catch (Pkcs11Exception loginEx)
+                            {
+                                if (loginEx.RV == CKR.CKR_USER_ALREADY_LOGGED_IN)
+                                {
+                                    loggedIn = true;
+                                }
+                                else if (loginEx.RV == CKR.CKR_PIN_INCORRECT)
+                                {
+                                    throw new InvalidOperationException("PIN de assinatura digital incorreto. Não foi feita nova tentativa automática.", loginEx);
+                                }
+                                else if (loginEx.RV == CKR.CKR_PIN_LOCKED)
+                                {
+                                    throw new InvalidOperationException("O PIN de assinatura digital do Cartão de Cidadão está bloqueado.", loginEx);
+                                }
+                                else if (loginEx.RV == CKR.CKR_PIN_LEN_RANGE)
+                                {
+                                    throw new InvalidOperationException("O comprimento do PIN de assinatura digital não foi aceite pelo Cartão de Cidadão.", loginEx);
+                                }
+                                else
+                                {
+                                    throw new InvalidOperationException("O Cartão de Cidadão recusou a autenticação PKCS#11: " + loginEx.RV + ".", loginEx);
+                                }
+                            }
+
                             byte[] signature;
                             using (var mechanism = session.Factories.MechanismFactory.Create(CKM.CKM_SHA1_RSA_PKCS))
                             {
@@ -677,36 +694,24 @@ namespace RJP.Signer.Bridge
                                 {
                                     signature = session.Sign(mechanism, privateKey, canonicalSignedInfo);
                                 }
-                                catch (Pkcs11Exception ex)
+                                catch (Pkcs11Exception signEx)
                                 {
-                                    // Em cartões que exigem login mas expõem a chave antes dele,
-                                    // C_Sign pode devolver CKR_USER_NOT_LOGGED_IN. Fazemos então o
-                                    // login delegado ao próprio middleware e repetimos uma única vez.
-                                    if (ex.RV != CKR.CKR_USER_NOT_LOGGED_IN) throw;
-                                    try
-                                    {
-                                        session.Login(CKU.CKU_USER, (byte[])null);
-                                        loggedIn = true;
-                                    }
-                                    catch (Pkcs11Exception loginEx)
-                                    {
-                                        if (loginEx.RV != CKR.CKR_USER_ALREADY_LOGGED_IN) throw;
-                                    }
-                                    signature = session.Sign(mechanism, privateKey, canonicalSignedInfo);
+                                    if (signEx.RV == CKR.CKR_PIN_INCORRECT)
+                                        throw new InvalidOperationException("O middleware recusou o PIN durante a assinatura. Confirma que estás a usar o PIN de assinatura digital, não o PIN de autenticação.", signEx);
+                                    if (signEx.RV == CKR.CKR_PIN_LOCKED)
+                                        throw new InvalidOperationException("O PIN de assinatura digital está bloqueado.", signEx);
+                                    if (signEx.RV == CKR.CKR_USER_NOT_LOGGED_IN)
+                                        throw new InvalidOperationException("O token não manteve a sessão autenticada para a chave de assinatura. Fecha outras aplicações que estejam a usar o Cartão de Cidadão e tenta novamente.", signEx);
+                                    throw new CryptographicException("Falha PKCS#11 ao assinar em RSA-SHA1: " + signEx.RV + ".", signEx);
                                 }
                             }
 
-                            // Esta verificação associa inequivocamente a chave PKCS#11 à chave
-                            // pública do certificado escolhido no Windows.
                             VerifyRsaSha1Locally(cert, canonicalSignedInfo, signature);
                             return signature;
                         }
-                        catch (Pkcs11Exception ex)
-                        {
-                            throw new CryptographicException("Falha PKCS#11 ao assinar em RSA-SHA1: " + ex.RV + ".", ex);
-                        }
                         finally
                         {
+                            if (pinBytes != null) Array.Clear(pinBytes, 0, pinBytes.Length);
                             if (loggedIn) { try { session.Logout(); } catch { } }
                         }
                     }
@@ -716,6 +721,35 @@ namespace RJP.Signer.Bridge
             var detail = diagnostics.Count == 0 ? "" : "\n\nDiagnóstico PKCS#11:\n" + string.Join("\n", diagnostics);
             throw new InvalidOperationException(
                 "Não foi localizada no Cartão de Cidadão/token PKCS#11 a chave privada de assinatura 'CITIZEN SIGNATURE KEY'." + detail);
+        }
+
+        private static byte[] PromptForCitizenCardSignaturePin(string tokenLabel)
+        {
+            byte[] pin = null;
+            Exception dialogError = null;
+            var canceled = false;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    using (var dialog = new CitizenCardPinDialog(tokenLabel))
+                    {
+                        if (dialog.ShowDialog() == DialogResult.OK)
+                            pin = dialog.TakePinBytes();
+                        else
+                            canceled = true;
+                    }
+                }
+                catch (Exception ex) { dialogError = ex; }
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = false;
+            thread.Start();
+            thread.Join();
+
+            if (dialogError != null) throw new InvalidOperationException("Não foi possível abrir a janela segura de PIN do RJP Signer Bridge.", dialogError);
+            if (canceled || pin == null) throw new OperationCanceledException("Introdução do PIN de assinatura cancelada. Nenhuma assinatura foi criada.");
+            return pin;
         }
 
         private static IObjectHandle FindCitizenSignaturePrivateKey(ISession session)
@@ -1072,6 +1106,67 @@ namespace RJP.Signer.Bridge
             sb.Append("\r\n");
             var header = Encoding.ASCII.GetBytes(sb.ToString()); stream.Write(header, 0, header.Length);
             if (body != null && body.Length > 0) stream.Write(body, 0, body.Length); stream.Flush();
+        }
+    }
+
+    internal sealed class CitizenCardPinDialog : Form
+    {
+        private readonly TextBox PinBox;
+
+        public CitizenCardPinDialog(string tokenLabel)
+        {
+            Text = "RJP Signer — PIN de assinatura digital";
+            Width = 470;
+            Height = 255;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = true;
+            StartPosition = FormStartPosition.CenterScreen;
+            TopMost = true;
+
+            var title = new Label
+            {
+                Left = 24, Top = 20, Width = 410, Height = 26,
+                Text = "Cartão de Cidadão — Assinatura Digital",
+                Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold)
+            };
+            var info = new Label
+            {
+                Left = 24, Top = 52, Width = 410, Height = 42,
+                Text = "Introduz o PIN de assinatura digital do Cartão de Cidadão.\nO PIN é enviado apenas ao módulo local pteidpkcs11.dll e não é guardado."
+            };
+            var token = new Label
+            {
+                Left = 24, Top = 98, Width = 410, Height = 20,
+                Text = string.IsNullOrWhiteSpace(tokenLabel) ? "Token: Cartão de Cidadão" : "Token: " + tokenLabel
+            };
+            PinBox = new TextBox
+            {
+                Left = 24, Top = 124, Width = 410, Height = 28,
+                UseSystemPasswordChar = true, MaxLength = 16, TabIndex = 0
+            };
+            var cancel = new Button { Text = "Cancelar", Left = 268, Top = 166, Width = 80, DialogResult = DialogResult.Cancel, TabIndex = 2 };
+            var ok = new Button { Text = "Assinar", Left = 354, Top = 166, Width = 80, DialogResult = DialogResult.OK, TabIndex = 1 };
+            AcceptButton = ok;
+            CancelButton = cancel;
+            Controls.Add(title); Controls.Add(info); Controls.Add(token); Controls.Add(PinBox); Controls.Add(cancel); Controls.Add(ok);
+            Shown += (s, e) => PinBox.Focus();
+        }
+
+        public byte[] TakePinBytes()
+        {
+            var value = PinBox.Text ?? string.Empty;
+            PinBox.Clear();
+            if (string.IsNullOrWhiteSpace(value))
+                throw new InvalidOperationException("O PIN de assinatura digital não pode estar vazio.");
+            return Encoding.UTF8.GetBytes(value);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && PinBox != null) PinBox.Clear();
+            base.Dispose(disposing);
         }
     }
 
