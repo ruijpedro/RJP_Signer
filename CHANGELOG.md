@@ -1,4 +1,13 @@
-# RJP Signer V1.4.3
+# RJP Signer V1.4.4
+
+- Corrige o Build Windows App no GitHub Actions.
+- `electron-builder` deixa de tentar publicar automaticamente no GitHub em ambiente CI.
+- O workflow e o script `windows:app` usam agora `--publish never`.
+- Não é necessário criar `GH_TOKEN` para compilar e descarregar os artifacts.
+- Adiciona `description` e `author` ao `package.json` para remover avisos do electron-builder.
+- Mantém o motor de assinatura, Bridge e correção do modal da V1.4.3.
+
+# RJP Signer V1.4.4
 
 ## Correção — modal de assinatura preso
 - Corrigido o modal de assinatura que podia ficar maior do que o ecrã e esconder o botão final.
@@ -16,7 +25,7 @@
 - CMD mantém o fornecedor criptográfico do Windows; em DWFx legado pode ser recusada por exigir RSA-SHA1.
 - Mantidos Guardar Como obrigatório, verificação OPC, diagnóstico `_ASSINADO_INVALIDO`, emparelhamento e proteção contra Bridge desatualizado.
 
-## V1.4.3 — Windows App
+## V1.4.4 — Windows App
 - Novo workflow `Build RJP Signer Windows App`.
 - Gera instalador Windows x64 e ZIP portátil.
 - Desktop baseado em Electron, servindo localmente a mesma interface Vite.
