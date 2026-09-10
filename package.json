@@ -1,7 +1,7 @@
 {
   "name": "rjp-signer",
   "private": true,
-  "version": "1.4.4",
+  "version": "1.4.5",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -11,7 +11,8 @@
     "android:add": "cap add android",
     "android:sync": "cap sync android",
     "android:open": "cap open android",
-    "windows:app": "npm run build && electron-builder --win nsis --x64 --publish never"
+    "windows:app": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "windows:package": "electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
@@ -64,7 +65,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "RJP Signer"
-    }
+    },
+    "publish": null
   },
   "description": "Assinatura digital de documentos DWF, DWFx, PDF e PDF/A.",
   "author": "RJP"

@@ -1,15 +1,5 @@
-# RJP Signer Bridge V1.4.1
+# RJP Signer Bridge V1.4.5
 
-Bridge local Windows para o RJP Signer.
+Bridge local Windows para comunicação entre o RJP Signer e os certificados/Cartão de Cidadão.
 
-## Cartão de Cidadão
-
-Para DWFx Autodesk, a assinatura passa diretamente pelo módulo oficial `pteidpkcs11.dll`. O Bridge apresenta uma janela local para o PIN de **assinatura digital**, envia-o apenas ao PKCS#11 e limpa o buffer logo após a operação. Não existe `session.Login(..., null)`.
-
-## Chave Móvel Digital
-
-Usa o certificado CMD registado no Windows. Em DWFx legado, o fornecedor pode recusar RSA-SHA1; nesse caso o Bridge aborta com mensagem clara.
-
-## Instalação
-
-Compila `Build RJP Signer Windows Installer`, instala e confirma `Bridge ligado · V1.4.1`.
+Para instalar pelo GitHub Actions, usa **Build RJP Signer Windows Installer** e confirma depois na aplicação `Bridge ligado · V1.4.5`.

@@ -1,12 +1,12 @@
-# Upload GitHub — RJP Signer V1.4.4
+# Upload GitHub — RJP Signer V1.4.5
 
-1. Substitui todos os ficheiros do repositório pelos deste ZIP.
-2. Confirma os quatro workflows em `.github/workflows/`.
-3. Corre **Build RJP Signer Windows Installer**.
-4. Instala `RJP-Signer-Bridge-Setup-V1.4.4`.
-5. Confirma `Bridge ligado · V1.4.4`.
-6. Para CMD, regista primeiro o certificado em **Autenticação.gov → Configuração de assinaturas → Chave Móvel Digital → Registar**.
+1. Carrega **todos** os ficheiros desta versão, incluindo `.github/workflows/`.
+2. No GitHub abre **Actions**.
+3. Executa especificamente **Build RJP Signer Windows App V1.4.5 NO PUBLISH**.
+4. Não executes o workflow antigo se ainda aparecer com outro nome.
+5. O artifact esperado é `RJP-Signer-Windows-App-NO-PUBLISH-V1.4.5`.
 
-### Novo workflow Windows App
-Depois do upload, em **Actions → Build RJP Signer Windows App → Run workflow**.
-Descarrega o artifact `RJP-Signer-Windows-App-V1.4.4` para obter o instalador `.exe` e a versão portátil `.zip`.
+O workflow novo chama `npm run windows:package`, cujo comando contém `--publish never`.
+Além disso `package.json` tem `build.publish = null` como segunda proteção contra publicação implícita.
+
+Depois podes manter ou apagar o workflow antigo `.github/workflows/build-windows-app.yml` no repositório.
