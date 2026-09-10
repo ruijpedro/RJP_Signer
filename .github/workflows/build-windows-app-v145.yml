@@ -1,23 +1,13 @@
-name: Build RJP Signer Windows App
+name: Build RJP Signer Windows App V1.4.5 NO PUBLISH
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - 'desktop/**'
-      - 'src/**'
-      - 'index.html'
-      - 'package.json'
-      - 'vite.config.js'
-      - 'bridge/**'
-      - '.github/workflows/build-windows-app.yml'
 
 permissions:
   contents: read
 
 jobs:
-  build-windows-app:
+  build-windows-app-no-publish:
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -33,7 +23,7 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Install web/desktop dependencies
+      - name: Install dependencies
         shell: pwsh
         run: npm install
 
@@ -49,7 +39,14 @@ jobs:
         shell: pwsh
         run: msbuild bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj /restore /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m
 
-      - name: Build Windows desktop setup
+      - name: Verify NO PUBLISH configuration
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($pkg.scripts.'windows:package' -notmatch '--publish never') { throw 'windows:package must contain --publish never' }
+          Write-Host 'NO PUBLISH guard OK'
+
+      - name: Build Windows desktop setup NO PUBLISH
         shell: pwsh
         run: npm run windows:package
 
@@ -69,10 +66,17 @@ jobs:
           if (!(Test-Path "release-windows/win-unpacked")) { throw "win-unpacked não foi criado" }
           Compress-Archive -Path $source -DestinationPath $dest -Force
 
-      - name: Upload Windows App
+      - name: Confirm installer exists
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem release-windows/RJP_Signer_Windows_Setup_*.exe
+          if (!$files) { throw 'Installer EXE not found' }
+          $files | ForEach-Object { Write-Host $_.FullName }
+
+      - name: Upload Windows App artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RJP-Signer-Windows-App-V${{ steps.meta.outputs.version }}
+          name: RJP-Signer-Windows-App-NO-PUBLISH-V${{ steps.meta.outputs.version }}
           path: |
             release-windows/RJP_Signer_Windows_Setup_*.exe
             release-windows/RJP_Signer_Windows_Portable_*.zip
