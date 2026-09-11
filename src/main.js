@@ -5,7 +5,7 @@ import { inspectDwfx } from './lib/dwfx.js';
 import { inspectPdf } from './lib/pdf.js';
 import { bridgeHealth, bridgePair, bridgeCertificates, bridgeVerifyDwfx, bridgeSignDwfx } from './lib/bridge.js';
 
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.5.1';
 
 const TOKEN_KEY = 'rjp-signer-bridge-token-v1';
 const HISTORY_KEY = 'rjp-signer-history-v1';
@@ -26,9 +26,9 @@ app.innerHTML = `
     </section>
 
     <section class="hero">
-      <span class="eyebrow">V1.4.5 · CARTÃO DE CIDADÃO + CHAVE MÓVEL DIGITAL</span>
+      <span class="eyebrow">V1.5.1 · AUTODESK DESIGN REVIEW COMPATIBILITY</span>
       <h1>Assinar. Verificar. Preservar.</h1>
-      <p>Escolhe Cartão de Cidadão ou Chave Móvel Digital. No Cartão físico, o PIN de assinatura é pedido numa janela local do Bridge e enviado apenas ao módulo oficial Autenticação.gov.</p>
+      <p>Assina DWFx no perfil OPC/XMLDSIG reconhecido pelo Autodesk Design Review, usando o Cartão de Cidadão físico e o PIN de assinatura.</p>
     </section>
 
     <section id="drop" class="drop">
@@ -45,8 +45,8 @@ app.innerHTML = `
 
     <section id="list" class="list"><div class="empty">Ainda não existem documentos adicionados.</div></section>
 
-    <section class="notice good"><strong>DWFx</strong><span>Assinatura real no modo <b>Compatibilidade Autodesk/Design Review</b>. Podes escolher <b>Cartão de Cidadão</b> ou <b>Chave Móvel Digital</b> quando o respetivo certificado estiver registado no Windows.</span></section>
-    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. A arquitetura V1.4.5 fica preparada para os dois métodos também nestes formatos; os motores DWF clássico e PAdES/PDF-A continuam desativados até validação.</span></section>
+    <section class="notice good"><strong>DWFx</strong><span><b>Compatibilidade Autodesk/Design Review</b>: XMLDSIG/OPC RSA-SHA1, certificado incorporado e verificação OPC obrigatória antes de guardar como válido.</span></section>
+    <section class="notice"><strong>DWF / PDF</strong><span>A análise está disponível. Os motores DWF clássico e PAdES/PDF-A continuam separados e desativados até validação; esta versão concentra-se em DWFx reconhecido pelo Design Review.</span></section>
 
     <section class="historybox">
       <div class="sectionhead"><div><h2>Histórico local</h2><p>Guarda apenas metadados, nunca os documentos nem o PIN.</p></div><button id="clearHistory">Limpar histórico</button></div>
@@ -62,20 +62,21 @@ app.innerHTML = `
   </div></div>
 
   <div id="signModal" class="modal hidden"><div class="modalbox">
-    <button data-close="sign" class="x">×</button><h2>Assinar DWFx</h2>
-    <p id="modalText">Escolhe o método de assinatura. O Bridge abrirá sempre a janela do Windows <b>Guardar como</b> com o nome *_ASSINADO.dwfx antes da autenticação.</p>
-    <div class="methodpicker" role="radiogroup" aria-label="Método de assinatura">
-      <label class="methodcard"><input type="radio" name="signMethod" value="cc" checked><span><b>Cartão de Cidadão</b><small>Cartão físico + PIN de assinatura via PKCS#11</small></span></label>
-      <label class="methodcard"><input type="radio" name="signMethod" value="cmd"><span><b>Chave Móvel Digital</b><small>Certificado CMD registado no Windows</small></span></label>
+    <button data-close="sign" class="x">×</button><h2>Assinar DWFx para Design Review</h2>
+    <p id="modalText">O Bridge abrirá <b>Guardar como</b>, pedirá o PIN de assinatura do Cartão de Cidadão e só aceitará o resultado se a verificação OPC for válida.</p>
+    <div class="compatnote"><b>Perfil obrigatório:</b> OPC/XMLDSIG · RSA-SHA1 · SHA-1 · SignatureIdValue · certificado incorporado. Este modo existe especificamente para compatibilidade Autodesk/Design Review.</div>
+    <div class="methodpicker" role="group" aria-label="Método de assinatura">
+      <label class="methodcard active"><input type="radio" name="signMethod" value="cc" checked disabled><span><b>Cartão de Cidadão</b><small>Cartão físico + PIN de assinatura via PKCS#11 Autenticação.gov</small></span></label>
+      <label class="methodcard disabled"><input type="radio" name="signMethod" value="cmd" disabled><span><b>Chave Móvel Digital</b><small>Disponível para PDF/PDF-A; não usada no perfil DWFx Design Review RSA-SHA1</small></span></label>
     </div>
-    <div id="methodHelp" class="methodhelp"></div>
+    <div id="methodHelp" class="methodhelp"><b>Cartão de Cidadão:</b> o PIN é pedido localmente pelo Bridge e enviado apenas ao módulo oficial <code>pteidpkcs11.dll</code>. Não passa pela WebApp e não é guardado.</div>
     <label>Certificado<select id="certSelect"></select></label><div id="certHelp" class="certhelp"></div>
-    <div class="compatnote"><b>DWFx:</b> Compatibilidade Autodesk/Design Review exige XMLDSIG/OPC RSA-SHA1. No Cartão de Cidadão, o Bridge usa PKCS#11 direto com CKM_SHA1_RSA_PKCS. Na CMD, o fornecedor Windows pode recusar RSA-SHA1; nesse caso a CMD não pode ser usada para DWFx legado, embora continue prevista para PDF/PAdES.</div>
-    <div class="modalactions"><button data-close="sign">Cancelar</button><button id="confirmSign" class="primary">Assinar e guardar…</button></div>
+    <div id="compatNote" class="compatnote"><b>Design Review:</b> a aplicação valida o método RSA-SHA1, todos os DigestMethod SHA-1, o Signature Id, o certificado incorporado e a verificação OPC antes de gravar o ficheiro como assinado.</div>
+    <div class="modalactions"><button data-close="sign">Cancelar</button><button id="confirmSign" class="primary">Assinar para Design Review…</button></div>
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.4.5 · DWF / DWFx / PDF / PDF-A</footer>`;
+  <footer>RJP Signer V1.5.1 · DWFx Autodesk Design Review · DWF / PDF-A em evolução</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');
@@ -245,13 +246,9 @@ async function openSignDialog() {
   }
   try { certs = await bridgeCertificates(token); }
   catch (e) { if (e.status === 401) openPairDialog(); else toast(e.message, true); return; }
-  const usable = certs.filter(c => c.valid);
-  if (!usable.length) { toast('Não encontrei certificados válidos com chave privada no Windows.', true); return; }
-  const ccAvailable = usable.some(c => c.citizenCard && !c.mobileKey);
-  const cmdAvailable = usable.some(c => c.mobileKey);
-  const initial = ccAvailable ? 'cc' : (cmdAvailable ? 'cmd' : 'cc');
-  document.querySelectorAll('input[name="signMethod"]').forEach(r => { r.checked = r.value === initial; });
-  $('#modalText').textContent = `${eligible.length} DWFx pronto(s). O Windows abrirá “Guardar como” antes da autenticação. Escolhe Cartão de Cidadão ou Chave Móvel Digital.`;
+  const usable = methodCertificates();
+  if (!usable.length) { toast('Não encontrei o certificado de assinatura do Cartão de Cidadão físico.', true); return; }
+  $('#modalText').textContent = `${eligible.length} DWFx pronto(s). O resultado será criado exclusivamente no perfil Autodesk/Design Review e validado antes de ser aceite.`;
   updateMethodUI();
   signModal.classList.remove('hidden');
   requestAnimationFrame(() => {
@@ -260,38 +257,27 @@ async function openSignDialog() {
   });
 }
 
-function currentSignMethod() {
-  return document.querySelector('input[name="signMethod"]:checked')?.value || 'cc';
-}
+function currentSignMethod() { return 'cc'; }
+function currentSignMode() { return 'autodesk-compat'; }
 
-function methodCertificates(method) {
-  const valid = certs.filter(c => c.valid);
-  if (method === 'cmd') return valid.filter(c => c.mobileKey);
-  return valid.filter(c => c.citizenCard && !c.mobileKey);
+function methodCertificates() {
+  return certs.filter(c => c.valid && c.citizenCard && !c.mobileKey);
 }
 
 function chooseCertificate(list, method = 'cc') {
   const scoped = method === 'cmd'
-    ? list.filter(c => c.mobileKey)
-    : list.filter(c => c.citizenCard && !c.mobileKey);
-  return scoped.find(c => c.valid && c.recommended) ||
-         scoped.find(c => c.valid) || null;
+    ? list.filter(c => c.valid && c.mobileKey)
+    : list.filter(c => c.valid && c.citizenCard && !c.mobileKey);
+  return scoped.find(c => c.recommended) || scoped[0] || null;
 }
 
 function updateMethodUI() {
-  const method = currentSignMethod();
-  const usable = methodCertificates(method);
-  const preferred = chooseCertificate(usable, method);
-  certSelect.innerHTML = usable.map(c => `<option value="${esc(c.thumbprint)}" ${preferred && c.thumbprint === preferred.thumbprint ? 'selected' : ''}>${esc(c.subject)}${c.mobileKey ? ' · Chave Móvel Digital' : ' · Cartão de Cidadão'}${c.recommended ? ' · assinatura' : ''}</option>`).join('');
-  if (method === 'cmd') {
-    methodHelp.innerHTML = usable.length
-      ? '<b>Chave Móvel Digital:</b> será usado o certificado CMD registado no Windows pela aplicação Autenticação.gov. A autenticação é feita pelo fornecedor oficial.'
-      : '<b>CMD ainda não registada no Windows.</b> Na aplicação Autenticação.gov abre <i>Configuração de assinaturas → Chave Móvel Digital → Registar</i> e depois carrega em Atualizar no RJP Signer.';
-  } else {
-    methodHelp.innerHTML = usable.length
-      ? '<b>Cartão de Cidadão:</b> o Bridge pede localmente o PIN de assinatura e usa diretamente o módulo oficial pteidpkcs11.dll. O PIN nunca passa pela WebApp e não é guardado.'
-      : '<b>Cartão de Cidadão não detetado.</b> Insere o cartão no leitor, aguarda o registo do certificado e carrega em Atualizar.';
-  }
+  const usable = methodCertificates();
+  const preferred = chooseCertificate(usable);
+  certSelect.innerHTML = usable.map(c => `<option value="${esc(c.thumbprint)}" ${preferred && c.thumbprint === preferred.thumbprint ? 'selected' : ''}>${esc(c.subject)} · Cartão de Cidadão${c.recommended ? ' · assinatura' : ''}</option>`).join('');
+  methodHelp.innerHTML = usable.length
+    ? '<b>Cartão de Cidadão:</b> perfil Autodesk/Design Review ativo. O Bridge usa a chave <code>CITIZEN SIGNATURE KEY</code> e <code>CKM_SHA1_RSA_PKCS</code> apenas para este formato legado.'
+    : '<b>Cartão de Cidadão não detetado.</b> Insere o cartão no leitor, aguarda o middleware Autenticação.gov e carrega em Atualizar.';
   confirmSign.disabled = !usable.length;
   updateCertHelp();
 }
@@ -304,34 +290,33 @@ function updateCertHelp() {
 }
 
 async function signSelected() {
-  const method = currentSignMethod();
   const cert = certs.find(c => c.thumbprint === certSelect.value);
   if (!cert || !cert.valid) { toast('Seleciona um certificado válido.', true); return; }
-  if (method === 'cmd' && !cert.mobileKey) { toast('Seleciona um certificado da Chave Móvel Digital.', true); return; }
-  if (method === 'cc' && (!cert.citizenCard || cert.mobileKey)) { toast('Seleciona o certificado de assinatura do Cartão de Cidadão.', true); return; }
+  if (!cert.citizenCard || cert.mobileKey) { toast('Seleciona o certificado de assinatura do Cartão de Cidadão físico.', true); return; }
   const eligible = docs.filter(d => d.type.family === 'DWFx' && !d.detail.signed);
-  signing = true; confirmSign.disabled = true; certSelect.disabled = true; confirmSign.textContent = 'A preparar Guardar como…'; render();
+  signing = true; confirmSign.disabled = true; certSelect.disabled = true; confirmSign.textContent = 'A preparar Design Review…'; render();
   let done = 0;
   try {
     for (const d of eligible) {
-      d.status = 'A aguardar confirmação e Guardar como no Windows…'; render();
-      const result = await bridgeSignDwfx(d.file, cert.thumbprint, token, method);
+      d.status = 'A aguardar Guardar como, PIN e validação Design Review…'; render();
+      const result = await bridgeSignDwfx(d.file, cert.thumbprint, token, 'cc', 'autodesk-compat');
       if (!result.savedByBridge) downloadBlob(result.blob, result.outputName);
-      d.status = result.savedByBridge ? `✓ Assinado e guardado como ${result.savedName || result.outputName}` : `✓ Criado ${result.outputName}`;
+      if (!result.designReviewProfile) throw new Error('O Bridge não confirmou o perfil Autodesk/Design Review no ficheiro final.');
+      d.status = `✓ Assinado para Design Review e guardado como ${result.savedName || result.outputName}`;
       d.verification = { valid: result.verifyResult === 'Success', verifyResult: result.verifyResult, signer: result.signer, signedParts: result.signedParts, signatureCount: result.signatureCount, signedAt: result.signedAt };
       addHistory({
-        name: result.savedName || result.outputName, source: d.file.name, format: 'DWFx', method: method === 'cmd' ? 'Chave Móvel Digital' : 'Cartão de Cidadão', signer: result.signer || cert.subject,
+        name: result.savedName || result.outputName, source: d.file.name, format: 'DWFx', method: 'Cartão de Cidadão · Autodesk Design Review', signer: result.signer || cert.subject,
         date: result.signedAt || new Date().toISOString(), hashSource: d.hash, verification: result.verifyResult || 'Success', signedParts: result.signedParts, algorithm: result.algorithm
       });
       done++; render(); renderHistory();
     }
     signModal.classList.add('hidden');
-    toast(`${done} DWFx assinado(s), verificado(s) e guardado(s) com ${method === 'cmd' ? 'Chave Móvel Digital' : 'Cartão de Cidadão'}.`);
+    toast(`${done} DWFx assinado(s), verificado(s) e guardado(s) no perfil Autodesk/Design Review.`);
   } catch (e) {
     if (e.status === 401) { token = ''; localStorage.removeItem(TOKEN_KEY); paired = false; }
-    toast(e.message || 'Falha durante a assinatura.', true);
+    toast(e.message || 'Falha durante a assinatura Design Review.', true);
   } finally {
-    signing = false; certSelect.disabled = false; confirmSign.textContent = 'Assinar e guardar…'; updateMethodUI(); render();
+    signing = false; certSelect.disabled = false; confirmSign.textContent = 'Assinar para Design Review…'; updateMethodUI(); render();
   }
 }
 

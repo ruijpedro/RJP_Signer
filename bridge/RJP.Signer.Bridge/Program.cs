@@ -26,7 +26,7 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.4.5";
+        private const string Version = "1.5.1";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -240,7 +240,7 @@ namespace RJP.Signer.Bridge
                         {
                             ok = true, name = "RJP Signer Bridge", version = Version,
                             capabilities = new[] { "dwfx-sign", "dwfx-verify", "certificate-list", "pairing", "save-as-dialog", "citizen-card", "mobile-key", "windows-crypto", "cc-pkcs11-pin" },
-                            compatibility = "Autodesk/OPC RSA-SHA1: Cartão de Cidadão via PKCS#11 + PIN local; CMD via Windows crypto quando suportado", pairingRequired = true
+                            compatibility = "DWFx Autodesk/Design Review: OPC/XMLDSIG RSA-SHA1 obrigatório via Cartão de Cidadão PKCS#11", pairingRequired = true
                         }, origin); return;
                     }
                     if (req.Method == "POST" && req.Path == "/pair") { HandlePair(req, stream, origin); return; }
@@ -325,10 +325,13 @@ namespace RJP.Signer.Bridge
         {
             var thumbprint = NormalizeThumbprint(req.Header("X-RJP-Certificate"));
             var filename = SafeFileName(req.Header("X-RJP-Filename"));
-            var mode = (req.Header("X-RJP-Sign-Mode") ?? "autodesk-compat").Trim();
+            var mode = (req.Header("X-RJP-Sign-Mode") ?? "autodesk-compat").Trim().ToLowerInvariant();
             var signMethod = (req.Header("X-RJP-Sign-Method") ?? "cc").Trim().ToLowerInvariant();
-            if (!string.Equals(mode, "autodesk-compat", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Modo de assinatura não suportado nesta versão.");
-            if (signMethod != "cc" && signMethod != "cmd") throw new InvalidOperationException("Método de assinatura inválido. Usa cc ou cmd.");
+            if (mode != "autodesk-compat")
+                throw new NotSupportedException("Esta versão assina DWFx exclusivamente no perfil Autodesk/Design Review RSA-SHA1. Usa X-RJP-Sign-Mode: autodesk-compat.");
+            if (signMethod != "cc")
+                throw new NotSupportedException("Para DWFx reconhecido pelo Autodesk Design Review, esta versão usa o Cartão de Cidadão físico. A CMD fica reservada aos motores PDF/PDF-A.");
+
             ValidateDwfxRequest(req);
             if (string.IsNullOrWhiteSpace(thumbprint)) throw new InvalidOperationException("Seleciona um certificado de assinatura.");
 
@@ -343,19 +346,21 @@ namespace RJP.Signer.Bridge
                 using (var rsaPublic = cert.GetRSAPublicKey())
                 {
                     if (rsaPublic == null)
-                        throw new NotSupportedException("Este certificado não é RSA. O modo Autodesk/Design Review legado exige RSA-SHA1. PDF/PAdES moderno não terá esta limitação.");
+                        throw new NotSupportedException("Este certificado não disponibiliza uma chave pública RSA. A compatibilidade Autodesk/Design Review desta versão exige certificado RSA.");
                 }
 
-                var methodLabel = signMethod == "cmd" ? "Chave Móvel Digital" : "Cartão de Cidadão";
-                var methodEngineLabel = signMethod == "cmd"
-                    ? "Windows Crypto / certificado CMD registado"
-                    : "PKCS#11 Autenticação.gov / pteidpkcs11.dll";
-                var authLabel = signMethod == "cmd"
-                    ? "A autenticação é tratada pelo fornecedor CMD registado no Windows."
-                    : "O PIN de assinatura será pedido numa janela local do Bridge e não é guardado.";
+                var methodLabel = "Cartão de Cidadão";
+                var modeLabel = "Autodesk/Design Review · OPC/XMLDSIG RSA-SHA1";
+                var signingEngine = "PKCS#11 Autenticação.gov / CITIZEN SIGNATURE KEY";
+                var authLabel = "O PIN de assinatura será pedido localmente pelo Bridge e enviado apenas ao módulo oficial pteidpkcs11.dll. O resultado só é aceite se cumprir o perfil Design Review e VerifySignatures() devolver Success.";
+
                 var answer = MessageBox.Show(
-                    "Confirmas a assinatura digital deste ficheiro?\n\n" + filename + "\n\nMétodo: " + methodLabel + "\nCertificado:\n" + FriendlySubject(cert) +
-                    "\n\nModo: Compatibilidade Autodesk/Design Review\nMotor: " + methodEngineLabel + "\n\n" + authLabel,
+                    "Confirmas a assinatura digital deste ficheiro?\n\n" + filename +
+                    "\n\nMétodo: " + methodLabel +
+                    "\nCertificado:\n" + FriendlySubject(cert) +
+                    "\n\nModo: " + modeLabel +
+                    "\nMotor: " + signingEngine +
+                    "\n\n" + authLabel,
                     "RJP Signer — Confirmar assinatura", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
                 if (answer != DialogResult.Yes) throw new OperationCanceledException("Assinatura cancelada pelo utilizador no Windows.");
 
@@ -373,71 +378,53 @@ namespace RJP.Signer.Bridge
                     int signedParts;
                     DateTime signedAt;
                     string signer;
-                    string signingEngine = signMethod == "cmd" ? "Windows Crypto / Chave Móvel Digital" : "PKCS#11 Autenticação.gov / Cartão de Cidadão";
+                    string algorithmLabel;
+                    int profileDigestRefs = 0;
+                    bool designReviewProfile = false;
 
-                    // Fase 1 — construir a infraestrutura OPC com um certificado temporário de software.
-                    // Isto evita pedir ao Cartão de Cidadão uma assinatura RSA-SHA256 que depois seria descartada.
-                    // Em seguida, o SignedInfo é mudado para rsa-sha1 e assinado diretamente via PKCS#11 oficial.
-                    using (var package = Package.Open(temp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-                    using (var placeholderRsa = CreatePlaceholderRsa())
-                    {
-                        var request = new CertificateRequest(
-                            "CN=RJP Signer OPC Placeholder",
-                            placeholderRsa,
-                            HashAlgorithmName.SHA256,
-                            RSASignaturePadding.Pkcs1);
-                        using (var placeholderCert = request.CreateSelfSigned(DateTimeOffset.Now.AddMinutes(-5), DateTimeOffset.Now.AddDays(1)))
+                    // Perfil único desta versão: compatibilidade Autodesk/Design Review.
+                        using (var package = Package.Open(temp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                        using (var placeholderRsa = CreatePlaceholderRsa())
                         {
-                            var manager = new PackageDigitalSignatureManager(package);
-                            if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.4.5 não altera documentos DWFx já assinados.");
-                            manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
-                            manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
-                            manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";
-                            var toSign = package.GetParts()
-                                .Where(p => !IsSignatureInfrastructure(p.Uri))
-                                .Where(p => !IsRasterOverlayTiff(p.Uri))
-                                .Select(p => p.Uri)
-                                .ToList();
-                            if (toSign.Count == 0) throw new InvalidDataException("O DWFx não contém partes assináveis.");
-
-                            var created = manager.Sign(toSign, placeholderCert, new List<PackageRelationshipSelector>(), "SignatureIdValue");
-                            if (created == null || created.SignaturePart == null) throw new CryptographicException("O motor OPC não criou a infraestrutura de assinatura.");
-
-                            // Troca o certificado temporário pelo certificado real do Cartão de Cidadão.
-                            ReplaceEmbeddedCertificate(package, cert.RawData);
-
-                            // Mantém o XML do PackageDigitalSignatureManager byte-a-byte o mais estável possível:
-                            // apenas SignatureMethod e SignatureValue são alterados.
-                            var signatureXml = ReadPartText(created.SignaturePart);
-                            signatureXml = ReplaceSignatureMethod(signatureXml, LegacyRsaSha1SignatureMethod);
-                            var canonicalSignedInfo = CanonicalizeSignedInfo(signatureXml);
-
-                            // Motor separado por método:
-                            // - Cartão de Cidadão: PKCS#11 oficial (pteidpkcs11.dll) com PIN de assinatura pedido localmente pelo Bridge.
-                            // - CMD: fornecedor criptográfico registado no Windows; pode recusar RSA-SHA1 por ser legado.
-                            byte[] finalSignature;
-                            if (signMethod == "cc")
+                            var request = new CertificateRequest(
+                                "CN=RJP Signer OPC Placeholder",
+                                placeholderRsa,
+                                HashAlgorithmName.SHA256,
+                                RSASignaturePadding.Pkcs1);
+                            using (var placeholderCert = request.CreateSelfSigned(DateTimeOffset.Now.AddMinutes(-5), DateTimeOffset.Now.AddDays(1)))
                             {
+                                var manager = new PackageDigitalSignatureManager(package);
+                                if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.5.1 ainda não adiciona uma segunda assinatura ao mesmo package.");
+                                manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
+                                manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
+                                manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";
+                                var toSign = package.GetParts()
+                                    .Where(part => !IsSignatureInfrastructure(part.Uri))
+                                    .Where(part => !IsRasterOverlayTiff(part.Uri))
+                                    .Select(part => part.Uri)
+                                    .ToList();
+                                if (toSign.Count == 0) throw new InvalidDataException("O DWFx não contém partes assináveis.");
+
+                                var created = manager.Sign(toSign, placeholderCert, new List<PackageRelationshipSelector>(), "SignatureIdValue");
+                                if (created == null || created.SignaturePart == null) throw new CryptographicException("O motor OPC não criou a infraestrutura de assinatura.");
+
+                                ReplaceEmbeddedCertificate(package, cert.RawData);
+                                var signatureXml = ReadPartText(created.SignaturePart);
+                                signatureXml = ReplaceSignatureMethod(signatureXml, LegacyRsaSha1SignatureMethod);
+                                var canonicalSignedInfo = CanonicalizeSignedInfo(signatureXml);
                                 var modulePath = ResolvePkcs11Module();
-                                finalSignature = SignRsaSha1WithCitizenCardPkcs11(cert, canonicalSignedInfo, modulePath);
+                                var finalSignature = SignRsaSha1WithCitizenCardPkcs11(cert, canonicalSignedInfo, modulePath);
+                                VerifyRsaSha1Locally(cert, canonicalSignedInfo, finalSignature);
+                                signatureXml = ReplaceSignatureValue(signatureXml, Convert.ToBase64String(finalSignature));
+                                WritePartText(created.SignaturePart, signatureXml);
+                                if (!string.Equals(ReadSignatureMethod(created.SignaturePart), LegacyRsaSha1SignatureMethod, StringComparison.Ordinal))
+                                    throw new CryptographicException("O SignatureMethod final não ficou em rsa-sha1.");
+                                package.Flush();
                             }
-                            else
-                            {
-                                finalSignature = SignRsaSha1WithWindowsProvider(cert, canonicalSignedInfo, signMethod);
-                            }
-                            VerifyRsaSha1Locally(cert, canonicalSignedInfo, finalSignature);
-                            signatureXml = ReplaceSignatureValue(signatureXml, Convert.ToBase64String(finalSignature));
-                            WritePartText(created.SignaturePart, signatureXml);
-
-                            var actualMethod = ReadSignatureMethod(created.SignaturePart);
-                            if (!string.Equals(actualMethod, LegacyRsaSha1SignatureMethod, StringComparison.Ordinal))
-                                throw new CryptographicException("O SignatureMethod final não ficou em rsa-sha1.");
-
-                            package.Flush();
                         }
-                    }
+                    algorithmLabel = "RSA-SHA1 / SHA-1 · Autodesk Design Review · Cartão de Cidadão";
 
-                    // Fase 2 — reabrir o DWFx e validar com o mesmo verificador OPC que já validou o ficheiro Autodesk.
+                    // Reabrir e verificar antes de aceitar/gravar o resultado final.
                     using (var package = Package.Open(temp, FileMode.Open, FileAccess.Read, FileShare.Read))
                     {
                         var manager = new PackageDigitalSignatureManager(package);
@@ -456,6 +443,9 @@ namespace RJP.Signer.Bridge
                             ? PackageDigitalSignatureManager.VerifyCertificate(first.Signer)
                             : X509ChainStatusFlags.NotSignatureValid;
 
+                        profileDigestRefs = ValidateAutodeskDesignReviewProfile(package, first, cert);
+                        designReviewProfile = true;
+
                         if (verifyResult != VerifyResult.Success)
                         {
                             var diagnosticPath = BuildDiagnosticSavePath(savePath);
@@ -464,6 +454,7 @@ namespace RJP.Signer.Bridge
                             File.WriteAllText(reportPath,
                                 "RJP Signer — diagnóstico de assinatura DWFx" + Environment.NewLine +
                                 "Versão Bridge: " + Version + Environment.NewLine +
+                                "Modo: " + modeLabel + Environment.NewLine +
                                 "Método: " + methodLabel + Environment.NewLine +
                                 "Motor: " + signingEngine + Environment.NewLine +
                                 "Ficheiro origem: " + filename + Environment.NewLine +
@@ -473,11 +464,13 @@ namespace RJP.Signer.Bridge
                                 "Signatário: " + signer + Environment.NewLine +
                                 "Data: " + signedAt.ToString("o") + Environment.NewLine +
                                 "Certificado: " + certStatus + Environment.NewLine +
+                                "Perfil Design Review: " + (designReviewProfile ? "OK" : "FALHOU") + Environment.NewLine +
+                                "DigestMethod SHA-1 encontrados: " + profileDigestRefs + Environment.NewLine +
                                 "IMPORTANTE: este ficheiro NÃO deve ser usado como documento assinado válido." + Environment.NewLine,
                                 Encoding.UTF8);
                             Log(signingEngine + ": verificação final falhou: " + verifyResult + " | diagnóstico=" + diagnosticPath);
                             throw new CryptographicException(
-                                "A assinatura foi criada por " + signingEngine + " mas a verificação OPC falhou: " + verifyResult +
+                                "A assinatura foi criada mas a verificação OPC falhou: " + verifyResult +
                                 ". Foi guardada uma cópia de diagnóstico em: " + diagnosticPath + ".");
                         }
                     }
@@ -494,11 +487,13 @@ namespace RJP.Signer.Bridge
                         ["X-RJP-Verify-Result"] = Uri.EscapeDataString(verifyResult.ToString()),
                         ["X-RJP-Signed-Parts"] = signedParts.ToString(),
                         ["X-RJP-Signature-Count"] = signatureCount.ToString(),
-                        ["X-RJP-Algorithm"] = Uri.EscapeDataString("RSA-SHA1 / SHA-1 (Autodesk compat · " + signingEngine + ")"),
+                        ["X-RJP-Algorithm"] = Uri.EscapeDataString(algorithmLabel),
                         ["X-RJP-Signed-At"] = Uri.EscapeDataString(signedAt.ToString("o")),
                         ["X-RJP-Certificate-Status"] = Uri.EscapeDataString(certStatus.ToString()),
                         ["X-RJP-Saved"] = "1",
-                        ["X-RJP-Saved-Name"] = Uri.EscapeDataString(savedName)
+                        ["X-RJP-Saved-Name"] = Uri.EscapeDataString(savedName),
+                        ["X-RJP-DesignReview-Profile"] = designReviewProfile ? "1" : "0",
+                        ["X-RJP-Profile-Digest-Refs"] = profileDigestRefs.ToString()
                     };
                     WriteResponse(stream, 200, "application/octet-stream", signedBytes, origin, headers);
                     Log(signingEngine + ": assinado e guardado: " + filename + " -> " + savePath + " | " + signer + " | partes=" + signedParts + " | OPC=" + verifyResult);
@@ -930,6 +925,69 @@ namespace RJP.Signer.Bridge
                 var end = xml.IndexOf('"', start);
                 return end > start ? xml.Substring(start, end - start) : null;
             }
+        }
+
+        private static int ValidateAutodeskDesignReviewProfile(Package package, PackageDigitalSignature signature, X509Certificate2 expectedCert)
+        {
+            if (package == null) throw new ArgumentNullException("package");
+            if (signature == null || signature.SignaturePart == null)
+                throw new CryptographicException("Perfil Design Review inválido: SignaturePart ausente.");
+
+            var xml = ReadPartText(signature.SignaturePart);
+            var doc = new XmlDocument { PreserveWhitespace = true };
+            doc.LoadXml(xml.TrimStart('\uFEFF'));
+            var ns = new XmlNamespaceManager(doc.NameTable);
+            ns.AddNamespace("ds", SignedXml.XmlDsigNamespaceUrl);
+
+            var signatureElement = doc.DocumentElement;
+            if (signatureElement == null || signatureElement.LocalName != "Signature")
+                throw new CryptographicException("Perfil Design Review inválido: elemento Signature ausente.");
+            if (!string.Equals(signatureElement.GetAttribute("Id"), "SignatureIdValue", StringComparison.Ordinal))
+                throw new CryptographicException("Perfil Design Review inválido: Signature Id não é SignatureIdValue.");
+
+            var canonicalizationMethod = doc.SelectSingleNode("/ds:Signature/ds:SignedInfo/ds:CanonicalizationMethod", ns) as XmlElement;
+            if (canonicalizationMethod == null || !string.Equals(canonicalizationMethod.GetAttribute("Algorithm"), SignedXml.XmlDsigC14NTransformUrl, StringComparison.Ordinal))
+                throw new CryptographicException("Perfil Design Review inválido: CanonicalizationMethod não é XML C14N 1.0.");
+
+            var signatureMethod = doc.SelectSingleNode("/ds:Signature/ds:SignedInfo/ds:SignatureMethod", ns) as XmlElement;
+            if (signatureMethod == null || !string.Equals(signatureMethod.GetAttribute("Algorithm"), LegacyRsaSha1SignatureMethod, StringComparison.Ordinal))
+                throw new CryptographicException("Perfil Design Review inválido: SignatureMethod não é rsa-sha1.");
+
+            var packageRef = doc.SelectSingleNode("/ds:Signature/ds:SignedInfo/ds:Reference[@URI='#idPackageObject']", ns) as XmlElement;
+            if (packageRef == null || !string.Equals(packageRef.GetAttribute("Type"), SignedXml.XmlDsigObjectType, StringComparison.Ordinal))
+                throw new CryptographicException("Perfil Design Review inválido: referência #idPackageObject ausente ou com Type incorreto.");
+            var packageObject = doc.SelectSingleNode("/ds:Signature/ds:Object[@Id='idPackageObject']", ns) as XmlElement;
+            if (packageObject == null)
+                throw new CryptographicException("Perfil Design Review inválido: Object idPackageObject ausente.");
+
+            var digestNodes = doc.SelectNodes("//ds:DigestMethod", ns);
+            if (digestNodes == null || digestNodes.Count == 0)
+                throw new CryptographicException("Perfil Design Review inválido: não existem DigestMethod.");
+            foreach (XmlNode node in digestNodes)
+            {
+                var el = node as XmlElement;
+                if (el == null || !string.Equals(el.GetAttribute("Algorithm"), SignedXml.XmlDsigSHA1Url, StringComparison.Ordinal))
+                    throw new CryptographicException("Perfil Design Review inválido: existe DigestMethod diferente de SHA-1.");
+            }
+
+            var originExists = package.GetParts().Any(p => p.Uri.OriginalString.EndsWith("/package/services/digital-signature/origin.psdsor", StringComparison.OrdinalIgnoreCase));
+            var signaturePartExists = package.GetParts().Any(p => p.Uri.OriginalString.IndexOf("/package/services/digital-signature/xml-signature/", StringComparison.OrdinalIgnoreCase) >= 0 && p.Uri.OriginalString.EndsWith(".psdsxs", StringComparison.OrdinalIgnoreCase));
+            var certificatePartExists = package.GetParts().Any(p => p.Uri.OriginalString.IndexOf("/package/services/digital-signature/certificate/", StringComparison.OrdinalIgnoreCase) >= 0 && p.Uri.OriginalString.EndsWith(".cer", StringComparison.OrdinalIgnoreCase));
+            if (!originExists || !signaturePartExists || !certificatePartExists)
+                throw new CryptographicException("Perfil Design Review inválido: infraestrutura OPC origin/signature/certificate incompleta.");
+
+            if (signature.Signer == null)
+                throw new CryptographicException("Perfil Design Review inválido: certificado do signatário não está incorporado.");
+            using (var actual = new X509Certificate2(signature.Signer))
+            {
+                if (!string.Equals(NormalizeThumbprint(actual.Thumbprint), NormalizeThumbprint(expectedCert.Thumbprint), StringComparison.OrdinalIgnoreCase))
+                    throw new CryptographicException("Perfil Design Review inválido: o certificado incorporado não corresponde ao certificado selecionado.");
+            }
+
+            if (signature.SignedParts == null || signature.SignedParts.Count == 0)
+                throw new CryptographicException("Perfil Design Review inválido: não existem partes DWFx protegidas.");
+
+            return digestNodes.Count;
         }
 
         private static void VerifyDwfx(HttpRequest req, NetworkStream stream, string origin)

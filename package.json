@@ -1,7 +1,7 @@
 {
   "name": "rjp-signer",
   "private": true,
-  "version": "1.4.5",
+  "version": "1.5.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -68,6 +68,6 @@
     },
     "publish": null
   },
-  "description": "Assinatura digital de documentos DWF, DWFx, PDF e PDF/A.",
+  "description": "Assinatura digital DWFx compatível com Autodesk Design Review, com suporte evolutivo para DWF, PDF e PDF/A.",
   "author": "RJP"
 }

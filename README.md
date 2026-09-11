@@ -1,44 +1,30 @@
-# RJP Signer V1.4.5
+# RJP Signer V1.5.1 — Autodesk Design Review
 
-## Dois métodos de assinatura
+Esta versão concentra o motor DWFx num objetivo: produzir um `.dwfx` cuja assinatura OPC/XMLDSIG siga o perfil legado usado pelo Autodesk Design Review.
 
-- **Cartão de Cidadão** — para DWFx Autodesk, usa diretamente o módulo oficial `pteidpkcs11.dll`. O PIN de **assinatura digital** é pedido numa janela local do RJP Signer Bridge, nunca na WebApp, e o buffer do PIN é apagado após a chamada PKCS#11.
-- **Chave Móvel Digital (CMD)** — usa o certificado CMD registado no Windows pela aplicação Autenticação.gov.
+## DWFx
 
-## DWFx Autodesk / Design Review
+Fluxo: selecionar DWFx → Cartão de Cidadão físico → Guardar como → PIN de assinatura → RSA-SHA1 via PKCS#11 → validação do perfil → verificação OPC → guardar `*_ASSINADO.dwfx`.
 
-O modo legado exige XMLDSIG/OPC com **RSA-SHA1/SHA-1**.
+A aplicação exige:
+- `SignatureMethod = rsa-sha1`;
+- todos os `DigestMethod = sha1`;
+- `Signature Id = SignatureIdValue`;
+- infraestrutura `origin.psdsor` + assinatura `.psdsxs` + certificado `.cer`;
+- certificado incorporado igual ao selecionado;
+- pelo menos uma parte DWFx protegida;
+- `VerifySignatures(false) = Success`.
 
-- Cartão de Cidadão RSA: motor PKCS#11 com `CITIZEN SIGNATURE KEY` + `CKM_SHA1_RSA_PKCS`.
-- CMD: o Bridge tenta o fornecedor criptográfico Windows. Se o fornecedor CMD recusar RSA-SHA1, a operação é interrompida; não é criado um ficheiro falsamente válido.
+O Cartão de Cidadão é acedido através do módulo oficial `pteidpkcs11.dll`. O PIN é introduzido localmente no Bridge e não passa pela WebApp.
 
-O fluxo mantém: **Guardar como → autenticar → assinar → fechar → reabrir → verificar OPC → guardar apenas se `Success`**.
+## CMD, PDF e DWF
 
-## PDF/PDF-A e DWF
+A CMD continua prevista para PDF/PDF-A, mas não é apresentada como método para DWFx Design Review, porque este perfil exige RSA-SHA1 legado. Os motores DWF clássico e PAdES/PDF-A continuam em evolução.
 
-A interface continua preparada para os dois métodos, mas nesta versão os motores PAdES/PDF-A e DWF clássico permanecem desativados até validação.
+## GitHub Actions
 
-## Build
-
-1. Carrega o projeto completo no GitHub.
-2. Executa `Actions → Build RJP Signer Windows Installer`.
-3. Instala o artifact `RJP-Signer-Bridge-Setup-V1.4.5`.
-4. Confirma na WebApp `Bridge ligado · V1.4.5`.
-
-## Aplicação Windows
-A V1.4.5 adiciona uma aplicação Windows desktop além da WebApp/APK/Bridge.
-No GitHub Actions execute **Build RJP Signer Windows App**. O artifact contém:
-- `RJP_Signer_Windows_Setup_<versão>_x64.exe` — instalador Windows.
-- `RJP_Signer_Windows_Portable_<versão>_x64.zip` — versão portátil.
-
-A aplicação desktop inclui o Bridge nos recursos e tenta iniciá-lo automaticamente se a porta local do Bridge ainda não estiver ativa. O emparelhamento de 6 dígitos mantém-se na primeira utilização.
-
-## Build Windows App V1.4.5
-
-O workflow `Build RJP Signer Windows App` compila o instalador e a versão portátil sem tentar publicar uma Release no GitHub. Não é necessário `GH_TOKEN`.
-
-Artifacts esperados:
-
-- `RJP_Signer_Windows_Setup_1.4.5_x64.exe`
-- `RJP_Signer_Windows_Portable_1.4.5_x64.zip`
-
+- Build RJP Signer Android APK
+- Build RJP Signer WebApp
+- Build RJP Signer Windows Bridge
+- Build RJP Signer Windows Installer
+- Build RJP Signer Windows App

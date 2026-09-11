@@ -1,7 +1,6 @@
 .github/workflows/build-android.yml
 .github/workflows/build-bridge-windows.yml
 .github/workflows/build-webapp.yml
-.github/workflows/build-windows-app-v145.yml
 .github/workflows/build-windows-app.yml
 .github/workflows/build-windows-installer.yml
 .gitignore

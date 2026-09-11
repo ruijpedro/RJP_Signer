@@ -56,14 +56,14 @@ export async function bridgeVerifyDwfx(file, token) {
   return jsonOrError(r);
 }
 
-export async function bridgeSignDwfx(file, thumbprint, token, signMethod = 'cc') {
+export async function bridgeSignDwfx(file, thumbprint, token, signMethod = 'cc', signMode = 'autodesk-compat') {
   const r = await request('/sign/dwfx', {
     method: 'POST',
     headers: authHeaders(token, {
       'Content-Type': 'application/octet-stream',
       'X-RJP-Certificate': thumbprint,
       'X-RJP-Filename': encodeURIComponent(file.name),
-      'X-RJP-Sign-Mode': 'autodesk-compat',
+      'X-RJP-Sign-Mode': signMode,
       'X-RJP-Sign-Method': signMethod
     }),
     body: file
@@ -86,7 +86,9 @@ export async function bridgeSignDwfx(file, thumbprint, token, signMethod = 'cc')
     verifyResult: get('X-RJP-Verify-Result'),
     signedParts: Number(get('X-RJP-Signed-Parts') || 0),
     signatureCount: Number(get('X-RJP-Signature-Count') || 0),
-    algorithm: get('X-RJP-Algorithm') || 'RSA-SHA1 / SHA-1',
+    algorithm: get('X-RJP-Algorithm') || 'RSA-SHA1 / SHA-1 · Autodesk Design Review',
+    designReviewProfile: get('X-RJP-DesignReview-Profile') === '1',
+    profileDigestRefs: Number(get('X-RJP-Profile-Digest-Refs') || 0),
     signedAt: get('X-RJP-Signed-At'),
     savedByBridge: get('X-RJP-Saved') === '1',
     savedName: get('X-RJP-Saved-Name')

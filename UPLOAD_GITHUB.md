@@ -1,12 +1,9 @@
-# Upload GitHub — RJP Signer V1.4.5
+# Upload GitHub — RJP Signer V1.5.1
 
-1. Carrega **todos** os ficheiros desta versão, incluindo `.github/workflows/`.
-2. No GitHub abre **Actions**.
-3. Executa especificamente **Build RJP Signer Windows App V1.4.5 NO PUBLISH**.
-4. Não executes o workflow antigo se ainda aparecer com outro nome.
-5. O artifact esperado é `RJP-Signer-Windows-App-NO-PUBLISH-V1.4.5`.
+Substitui os ficheiros do repositório pela árvore completa deste ZIP, incluindo `.github/workflows`.
 
-O workflow novo chama `npm run windows:package`, cujo comando contém `--publish never`.
-Além disso `package.json` tem `build.publish = null` como segunda proteção contra publicação implícita.
+Depois executa primeiro **Build RJP Signer Windows Installer** e instala o Bridge. Confirma na aplicação:
 
-Depois podes manter ou apagar o workflow antigo `.github/workflows/build-windows-app.yml` no repositório.
+`Bridge ligado · V1.5.1`
+
+Para testar DWFx, usa o Cartão de Cidadão físico e o botão **Assinar para Design Review…**. O ficheiro só é tratado como válido quando a verificação OPC devolve `Success` e o perfil Autodesk/Design Review é confirmado.
