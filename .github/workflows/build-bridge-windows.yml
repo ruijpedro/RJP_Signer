@@ -1,4 +1,4 @@
-name: Build RJP Signer Windows Bridge
+name: Build RJP Signer Windows Bridge V1.5.3
 
 on:
   workflow_dispatch:
@@ -19,6 +19,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate source version and Design Review API
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          Write-Host "RJP Signer source version: $version"
+          Write-Host "Git commit: $env:GITHUB_SHA"
+          if ($version -ne "1.5.3") { throw "Wrong checkout version: expected 1.5.3, got $version" }
+          $src = Get-Content bridge/RJP.Signer.Bridge/Program.cs -Raw
+          if ($src.Contains("SignedXml.XmlDsigObjectType")) { throw "OLD SOURCE DETECTED: SignedXml.XmlDsigObjectType is incompatible with .NET Framework 4.8. Upload V1.5.3 files before building." }
+          if (-not $src.Contains("http://www.w3.org/2000/09/xmldsig#Object")) { throw "Design Review XMLDSIG Object URI missing" }
+          Select-String -Path bridge/RJP.Signer.Bridge/Program.cs -Pattern "XmlDsigObjectTypeUri|xmldsig#Object" | ForEach-Object { Write-Host $_.Line }
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
