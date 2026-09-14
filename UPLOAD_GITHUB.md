@@ -1,9 +1,8 @@
-# Upload GitHub — RJP Signer V1.5.1
+# Upload GitHub — RJP Signer V1.5.3
 
-Substitui os ficheiros do repositório pela árvore completa deste ZIP, incluindo `.github/workflows`.
-
-Depois executa primeiro **Build RJP Signer Windows Installer** e instala o Bridge. Confirma na aplicação:
-
-`Bridge ligado · V1.5.1`
-
-Para testar DWFx, usa o Cartão de Cidadão físico e o botão **Assinar para Design Review…**. O ficheiro só é tratado como válido quando a verificação OPC devolve `Success` e o perfil Autodesk/Design Review é confirmado.
+1. Carrega **todos** os ficheiros deste ZIP para a raiz do repositório, incluindo `.github/workflows/`.
+2. Confirma que `package.json` mostra `"version": "1.5.3"`.
+3. Em `bridge/RJP.Signer.Bridge/Program.cs`, confirma que **não existe** `SignedXml.XmlDsigObjectType`.
+4. Corre **Build RJP Signer Windows Installer V1.5.3**.
+5. No log, antes do MSBuild, deve aparecer `RJP Signer source version: 1.5.3` e a linha com `XmlDsigObjectTypeUri = "http://www.w3.org/2000/09/xmldsig#Object"`.
+6. Instala o artifact e confirma `Bridge ligado · V1.5.3`.

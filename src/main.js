@@ -5,7 +5,7 @@ import { inspectDwfx } from './lib/dwfx.js';
 import { inspectPdf } from './lib/pdf.js';
 import { bridgeHealth, bridgePair, bridgeCertificates, bridgeVerifyDwfx, bridgeSignDwfx } from './lib/bridge.js';
 
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.3';
 
 const TOKEN_KEY = 'rjp-signer-bridge-token-v1';
 const HISTORY_KEY = 'rjp-signer-history-v1';
@@ -26,7 +26,7 @@ app.innerHTML = `
     </section>
 
     <section class="hero">
-      <span class="eyebrow">V1.5.1 · AUTODESK DESIGN REVIEW COMPATIBILITY</span>
+      <span class="eyebrow">V1.5.3 · AUTODESK DESIGN REVIEW COMPATIBILITY</span>
       <h1>Assinar. Verificar. Preservar.</h1>
       <p>Assina DWFx no perfil OPC/XMLDSIG reconhecido pelo Autodesk Design Review, usando o Cartão de Cidadão físico e o PIN de assinatura.</p>
     </section>
@@ -76,7 +76,7 @@ app.innerHTML = `
   </div></div>
 
   <div id="toast" class="toast hidden"></div>
-  <footer>RJP Signer V1.5.1 · DWFx Autodesk Design Review · DWF / PDF-A em evolução</footer>`;
+  <footer>RJP Signer V1.5.3 · DWFx Autodesk Design Review · DWF / PDF-A em evolução</footer>`;
 
 const $ = s => document.querySelector(s);
 const input = $('#input'), drop = $('#drop'), list = $('#list');

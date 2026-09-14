@@ -10,7 +10,7 @@ const must = [
 for (const p of must) if (!fs.existsSync(new URL(p, root))) throw new Error('Missing ' + p);
 
 const pkg = JSON.parse(fs.readFileSync(new URL('package.json', root), 'utf8'));
-if (pkg.version !== '1.5.1') throw new Error('Wrong version ' + pkg.version);
+if (pkg.version !== '1.5.3') throw new Error('Wrong version ' + pkg.version);
 const cap = JSON.parse(fs.readFileSync(new URL('capacitor.config.json', root), 'utf8'));
 if (cap.appId !== 'pt.rjp.signer' || cap.appName !== 'RJP Signer' || cap.webDir !== 'dist') throw new Error('Wrong Capacitor config');
 
@@ -26,6 +26,8 @@ for (const token of [
 if (!bridge.includes('mode != "autodesk-compat"')) throw new Error('DWFx bridge is not locked to Design Review compatibility mode');
 if (!bridge.includes('signMethod != "cc"')) throw new Error('DWFx bridge is not locked to physical Citizen Card');
 if (!bridge.includes('PromptForCitizenCardSignaturePin') || !bridge.includes('CKR.CKR_PIN_INCORRECT')) throw new Error('Citizen Card PIN handling missing');
+if (bridge.includes('SignedXml.XmlDsigObjectType')) throw new Error('Unsupported .NET Framework API SignedXml.XmlDsigObjectType must not be used');
+if (!bridge.includes('http://www.w3.org/2000/09/xmldsig#Object')) throw new Error('XMLDSIG Object Type URI missing');
 
 const bridgeJs = fs.readFileSync(new URL('src/lib/bridge.js', root), 'utf8');
 if (!bridgeJs.includes("signMode = 'autodesk-compat'")) throw new Error('Web bridge default is not Autodesk compatibility');
@@ -35,7 +37,7 @@ const mainJs = fs.readFileSync(new URL('src/main.js', root), 'utf8');
 if (!mainJs.includes('Assinar DWFx para Design Review')) throw new Error('Design Review UI missing');
 if (!mainJs.includes("return 'autodesk-compat'")) throw new Error('UI is not fixed to Autodesk compatibility');
 if (!mainJs.includes('Cartão de Cidadão · Autodesk Design Review')) throw new Error('History label missing');
-if (mainJs.includes('Assinatura DWFx moderna</b>')) throw new Error('Modern DWFx mode selector must not be exposed in V1.5.1');
+if (mainJs.includes('Assinatura DWFx moderna</b>')) throw new Error('Modern DWFx mode selector must not be exposed in V1.5.3');
 
 const csproj = fs.readFileSync(new URL('bridge/RJP.Signer.Bridge/RJP.Signer.Bridge.csproj', root), 'utf8');
 if (!csproj.includes('Pkcs11Interop') || !csproj.includes('5.3.0')) throw new Error('Pkcs11Interop missing');

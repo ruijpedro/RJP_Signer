@@ -1,4 +1,4 @@
-# RJP Signer Bridge V1.5.1
+# RJP Signer Bridge V1.5.3
 
 O Bridge liga a interface do RJP Signer ao Cartão de Cidadão e valida a assinatura DWFx localmente no Windows.
 
@@ -17,4 +17,4 @@ Esta versão expõe um único perfil para DWFx:
 
 A Chave Móvel Digital não é usada neste perfil DWFx porque o objetivo é compatibilidade com Autodesk Design Review. Continua prevista para PDF/PDF-A.
 
-Usa **Build RJP Signer Windows Installer** e confirma depois `Bridge ligado · V1.5.1`.
+Usa **Build RJP Signer Windows Installer** e confirma depois `Bridge ligado · V1.5.3`.

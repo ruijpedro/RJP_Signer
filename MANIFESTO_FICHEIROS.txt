@@ -5,7 +5,6 @@
 .github/workflows/build-windows-installer.yml
 .gitignore
 CHANGELOG.md
-MANIFESTO_FICHEIROS.txt
 README.md
 UPLOAD_GITHUB.md
 bridge/README_BRIDGE.md

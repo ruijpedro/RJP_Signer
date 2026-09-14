@@ -1,6 +1,9 @@
-# RJP Signer V1.5.1 — Autodesk Design Review
+# RJP Signer V1.5.3 — Autodesk Design Review
 
 Esta versão concentra o motor DWFx num objetivo: produzir um `.dwfx` cuja assinatura OPC/XMLDSIG siga o perfil legado usado pelo Autodesk Design Review.
+
+## V1.5.3 — Source Guard
+Antes do MSBuild, os workflows Windows verificam que o checkout é realmente V1.5.3 e que a API incompatível `SignedXml.XmlDsigObjectType` não está presente.
 
 ## DWFx
 
@@ -28,3 +31,7 @@ A CMD continua prevista para PDF/PDF-A, mas não é apresentada como método par
 - Build RJP Signer Windows Bridge
 - Build RJP Signer Windows Installer
 - Build RJP Signer Windows App
+
+
+### Correção V1.5.3
+O Bridge deixou de usar `SignedXml.XmlDsigObjectType` (inexistente no .NET Framework 4.8) e valida a referência `#idPackageObject` contra o URI XMLDSIG `http://www.w3.org/2000/09/xmldsig#Object`.

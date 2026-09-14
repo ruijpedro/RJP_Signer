@@ -26,9 +26,10 @@ namespace RJP.Signer.Bridge
     {
         private const int Port = 17341;
         private const int MaxBody = 250 * 1024 * 1024;
-        private const string Version = "1.5.1";
+        private const string Version = "1.5.3";
         private const string DefaultWebAppUrl = "https://ruijpedro.github.io/RJP_Signer/";
         private const string LegacyRsaSha1SignatureMethod = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
+        private const string XmlDsigObjectTypeUri = "http://www.w3.org/2000/09/xmldsig#Object";
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private static readonly HashSet<string> AllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -394,7 +395,7 @@ namespace RJP.Signer.Bridge
                             using (var placeholderCert = request.CreateSelfSigned(DateTimeOffset.Now.AddMinutes(-5), DateTimeOffset.Now.AddDays(1)))
                             {
                                 var manager = new PackageDigitalSignatureManager(package);
-                                if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.5.1 ainda não adiciona uma segunda assinatura ao mesmo package.");
+                                if (manager.IsSigned) throw new InvalidOperationException("Este DWFx já contém uma assinatura. A V1.5.3 ainda não adiciona uma segunda assinatura ao mesmo package.");
                                 manager.CertificateOption = CertificateEmbeddingOption.InCertificatePart;
                                 manager.HashAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1";
                                 manager.TimeFormat = "YYYY-MM-DDThh:mm:ss.sTZD";
@@ -954,7 +955,7 @@ namespace RJP.Signer.Bridge
                 throw new CryptographicException("Perfil Design Review inválido: SignatureMethod não é rsa-sha1.");
 
             var packageRef = doc.SelectSingleNode("/ds:Signature/ds:SignedInfo/ds:Reference[@URI='#idPackageObject']", ns) as XmlElement;
-            if (packageRef == null || !string.Equals(packageRef.GetAttribute("Type"), SignedXml.XmlDsigObjectType, StringComparison.Ordinal))
+            if (packageRef == null || !string.Equals(packageRef.GetAttribute("Type"), XmlDsigObjectTypeUri, StringComparison.Ordinal))
                 throw new CryptographicException("Perfil Design Review inválido: referência #idPackageObject ausente ou com Type incorreto.");
             var packageObject = doc.SelectSingleNode("/ds:Signature/ds:Object[@Id='idPackageObject']", ns) as XmlElement;
             if (packageObject == null)
